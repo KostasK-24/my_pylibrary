@@ -1,3 +1,4 @@
+LICENSE
 README.md
 setup.py
 stand_brary/__init__.py

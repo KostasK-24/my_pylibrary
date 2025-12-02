@@ -1,9 +1,9 @@
-Metadata-Version: 2.4
-Name: stand_brary
+Metadata-Version: 2.1
+Name: stand-brary
 Version: 1.0.0
 Summary: A collection of utility functions for various calculations and data processing
 Author: Kostas
-Author-email: your_email@example.com
+Author-email: gkaralis@tuc.gr
 Classifier: Development Status :: 3 - Alpha
 Classifier: Intended Audience :: Developers
 Classifier: License :: OSI Approved :: MIT License
@@ -17,20 +17,17 @@ Classifier: Programming Language :: Python :: 3.10
 Classifier: Topic :: Software Development :: Libraries
 Requires-Python: >=3.6
 Description-Content-Type: text/markdown
-Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: description
-Dynamic: description-content-type
-Dynamic: requires-python
-Dynamic: summary
+License-File: LICENSE
 
-# Stand Brary Library
+# Stand Brary
 
-A Python library containing utility functions for various calculations and data processing.
+**Stand Brary** is a lightweight Python utility library designed to streamline scientific calculations, file parsing, and data processing. It provides robust tools for handling physics constants, performing numerical differentiation, and reading complex space-delimited data files.
 
 ## Installation
 
+You can install this library directly from GitHub using `pip`.
+
+### For Users (Install only)
+Run this command in your terminal:
 ```bash
-cd /home/kostas/my_pylibrary
-pip install -e .
+pip install git+[https://github.com/KostasK-24/stand_brary.git](https://github.com/KostasK-24/stand_brary.git)
