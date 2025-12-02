@@ -180,3 +180,22 @@ def load_text_file_by_column(filepath):
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
+
+def calculate_linear_interpolation(x0, y0, x1, y1, target_y):
+    """
+    Finds x corresponding to target_y using linear interpolation
+    between two points (x0, y0) and (x1, y1).
+    Formula: x = x0 + (target_y - y0) * (x1 - x0) / (y1 - y0)
+    
+    Args:
+        x0, y0 (float): Coordinates of the first point.
+        x1, y1 (float): Coordinates of the second point.
+        target_y (float): The known y-value we want to find x for.
+    
+    Returns:
+        float: The interpolated x value. Returns None if y1 == y0.
+    """
+    if y1 == y0:
+        return None  # Avoid division by zero
+    
+    return x0 + (target_y - y0) * (x1 - x0) / (y1 - y0)

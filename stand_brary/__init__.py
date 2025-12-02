@@ -10,10 +10,11 @@ from .core import (
     check_file_access,
     calculate_centered_derivative,
     find_abs_min_or_max,
-    load_text_file_by_column
+    load_text_file_by_column,
+    calculate_linear_interpolation
 )
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
@@ -24,5 +25,6 @@ __all__ = [
     "check_file_access",
     "calculate_centered_derivative",
     "find_abs_min_or_max",
-    "load_text_file_by_column"
+    "load_text_file_by_column",
+    "calculate_linear_interpolation"
 ]
