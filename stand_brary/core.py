@@ -2,7 +2,7 @@
 Stand Brary Library - Core Physics & Utility Functions
 
 This module provides essential tools for semiconductor parameter extraction, 
-numerical analysis, and file handling.
+numerical analysis, file handling, and plotting.
 
 CONTEXT OF EQUATIONS & FUNCTIONS:
 
@@ -37,7 +37,11 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
      Formula: x = x0 + (target_y - y0) * (x1 - x0) / (y1 - y0).
    - Find Min/Max: Robust finder for max derivative or min value ignoring noise.
 
-5. UTILITIES:
+5. PLOTTING TOOLS:
+   - plot_four_styles: Creates a 2x2 grid visualizing data in Linear, Scientific, 
+     Log, and IEEE (Serif) styles.
+
+6. UTILITIES:
    - File Access: Safely checks file existence and permissions.
    - Smart Loader: Parses complex text files with multiple data blocks.
    - Temp Key: Standardizes temperature keys (float -> int) for consistent mapping.
@@ -45,6 +49,13 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
 
 import os
 import math
+# New imports for plotting
+try:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
+    import numpy as np
+except ImportError:
+    print("Warning: Matplotlib or Numpy not found. Plotting functions will fail.")
 
 # --- Fundamental Physical Constants ---
 
@@ -75,13 +86,6 @@ def calculate_thermal_voltage(temperature_celsius):
 def check_file_access(filepath, mode='r'):
     """
     Checks if a file exists and if the user has the required permissions.
-    
-    Args:
-        filepath (str): The full path to the file.
-        mode (str): 'r' for read access, 'w' for write access.
-        
-    Returns:
-        bool: True if file exists and access is granted, False otherwise.
     """
     if not os.path.exists(filepath):
         print(f"File Check Error: File not found at {filepath}")
@@ -100,15 +104,6 @@ def calculate_centered_derivative(y_data, x_data):
     """
     Calculates the centered-difference derivative of y with respect to x.
     dY/dX = (y[i+1] - y[i-1]) / (x[i+1] - x[i-1])
-    
-    The first and last points are set to None as they cannot be calculated.
-    
-    Args:
-        y_data (list): A list of 'y' numerical values.
-        x_data (list): A list of 'x' numerical values (must be same length as y).
-        
-    Returns:
-        list: A list of derivative values. Edges are marked with None.
     """
     n = len(y_data)
     if n != len(x_data):
@@ -130,16 +125,7 @@ def calculate_centered_derivative(y_data, x_data):
 
 def find_abs_min_or_max(data_list, find_min=True):
     """
-    Finds the absolute value of the minimum or maximum value in a list,
-    ignoring non-numerical entries (like None or "").
-    
-    Args:
-        data_list (list): A list that can contain numbers, Nones, or strings.
-        find_min (bool): If True, finds abs(min(data)). 
-                         If False, finds abs(max(data)).
-                         
-    Returns:
-        float: The absolute min or max value. Returns 0.0 if no valid data.
+    Finds the absolute value of the minimum or maximum value in a list.
     """
     valid_data = [d for d in data_list if isinstance(d, (int, float))]
     
@@ -155,20 +141,6 @@ def load_text_file_by_column(filepath):
     """
     Opens a space-delimited .txt file, and loads all data into a 
     dictionary of lists (vectors).
-    
-    This function is designed to be "smart":
-    - It reads the file line by line.
-    - If a line's first element is text, it's treated as a NEW HEADER.
-    - All subsequent data lines are assumed to belong to that header.
-    - This handles files with multiple data blocks and changing headers.
-    
-    Args:
-        filepath (str): The full path to the .txt file.
-        
-    Returns:
-        dict: A dictionary where keys are column names (from all headers)
-              and values are lists of data (as floats).
-              Returns None if the file is not found or is empty.
     """
     if not check_file_access(filepath, mode='r'):
         return None
@@ -182,7 +154,6 @@ def load_text_file_by_column(filepath):
             
             for line in f:
                 parts = line.strip().split()
-                
                 if not parts:
                     continue
 
@@ -208,9 +179,7 @@ def load_text_file_by_column(filepath):
                 else:
                     print(f"\nFound new header row:")
                     print(f"  -> {line.strip()}")
-                    
                     current_column_names = parts
-                    
                     for name in current_column_names:
                         if name not in data_vectors:
                             data_vectors[name] = []
@@ -228,159 +197,132 @@ def load_text_file_by_column(filepath):
 
 def calculate_linear_interpolation(x0, y0, x1, y1, target_y):
     """
-    Finds x corresponding to target_y using linear interpolation
-    between two points (x0, y0) and (x1, y1).
-    Formula: x = x0 + (target_y - y0) * (x1 - x0) / (y1 - y0)
-    
-    Args:
-        x0, y0 (float): Coordinates of the first point.
-        x1, y1 (float): Coordinates of the second point.
-        target_y (float): The known y-value we want to find x for.
-    
-    Returns:
-        float: The interpolated x value. Returns None if y1 == y0.
+    Finds x corresponding to target_y using linear interpolation.
     """
     if y1 == y0:
-        return None  # Avoid division by zero
-    
+        return None  
     return x0 + (target_y - y0) * (x1 - x0) / (y1 - y0)
 
-
 def calculate_ispec(max_derivative, thermal_voltage):
-    """
-    Calculates the Specific Current (Ispec) based on the EKV model extraction method.
-    
-    Formula: Ispec = (2 * n * Ut)^2 * (W/L) * Beta 
-             Here simplified extraction assumes: Ispec = (2 * Max_Derivative * Ut)^2
-             Where Max_Derivative = max(d(sqrt(Id))/dVg) which approximates sqrt(Beta/2)
-    
-    Args:
-        max_derivative (float): The maximum value of the derivative d(sqrt(Id))/dVg.
-        thermal_voltage (float): Thermal voltage (Ut) in Volts.
-        
-    Returns:
-        float: The calculated Specific Current (Ispec) in Amps.
-    """
-    return (2 * max_derivative) * (thermal_voltage ** 2)
+    """Calculates Ispec = (2 * max_derivative * Ut)^2."""
+    return (2 * max_derivative * thermal_voltage) ** 2
 
 def calculate_inversion_coefficient(id_abs, ispec):
-    """
-    Calculates the Inversion Coefficient (IC).
-    
-    Formula: IC = Id / Ispec
-    
-    Args:
-        id_abs (float): Absolute value of Drain Current (Id).
-        ispec (float): Specific Current (Ispec).
-        
-    Returns:
-        float: The Inversion Coefficient (unitless). Returns 0 if Ispec is 0.
-    """
+    """Calculates Inversion Coefficient (IC = Id / Ispec)."""
     if ispec == 0:
         return 0.0
     return id_abs / ispec
 
 def calculate_surface_potential_approx(ic):
-    """
-    Calculates the normalized surface potential (qs) approximation from Inversion Coefficient.
-    
-    Formula: qs = sqrt(0.25 + IC) - 0.5
-    
-    Args:
-        ic (float): Inversion Coefficient.
-        
-    Returns:
-        float: Normalized surface potential (qs).
-    """
+    """Calculates qs = sqrt(0.25 + IC) - 0.5."""
     return math.sqrt(0.25 + ic) - 0.5
 
 def calculate_cgs_ekv(qs):
-    """
-    Calculates the normalized Gate-Source Capacitance (cgs) using EKV charge model approximation.
-    
-    Formula: cgs = (qs/3) * (2*qs + 3) / (qs + 1)^2
-    
-    Args:
-        qs (float): Normalized surface potential.
-        
-    Returns:
-        float: Normalized cgs.
-    """
-    # Avoid division by zero if qs approaches -1 (though physically qs >= 0)
+    """Calculates normalized Cgs using EKV model."""
     if qs <= -1: 
         return 0.0
-        
     term1 = qs / 3.0
     term2 = (2.0 * qs + 3.0)
     term3 = (qs + 1.0) ** 2
     return term1 * (term2 / term3)
 
 def calculate_cgb_ekv(n, cgs, cgd=0.0):
-    """
-    Calculates the normalized Gate-Bulk Capacitance (cgb) using EKV model.
-    
-    Formula: cgb = ((n-1)/n) * (1 - cgs - cgd)
-    
-    Args:
-        n (float): Slope factor (n).
-        cgs (float): Normalized cgs.
-        cgd (float): Normalized cgd (default 0.0).
-        
-    Returns:
-        float: Normalized cgb.
-    """
+    """Calculates normalized Cgb using EKV model."""
     if n == 0: 
-        return 0.0 # Safety check
-        
+        return 0.0 
     term_n = (n - 1.0) / n
     return term_n * (1.0 - cgs - cgd)
 
 def calculate_beta_eff(isource, n0, ut):
-    """
-    Calculates the Effective Gain Factor (Beta_eff).
-    
-    Formula: Beta_eff = Is / (n0 * Ut^2)
-             Where Is = 2 * Isource (Specific Current)
-             Adjusted to user logic: Beta_eff derived from source current at Vth.
-    
-    Args:
-        isource (float): Source current at Vth (or Ispec/2).
-        n0 (float): Slope factor at Vth.
-        ut (float): Thermal voltage in Volts.
-        
-    Returns:
-        float: Beta_eff (A/V^2).
-    """
+    """Calculates Beta_eff = Is / (n0 * Ut^2)."""
     if n0 == 0 or ut == 0:
         return 0.0
     return isource / (n0 * (ut ** 2))
 
 def calculate_mobility(beta_eff, cox_prime):
-    """
-    Calculates Mobility (Mu).
-    
-    Formula: Mu = Beta_eff / C'ox
-    
-    Args:
-        beta_eff (float): Effective Gain Factor (A/V^2).
-        cox_prime (float): Oxide Capacitance per unit area (F/m^2 or F).
-        
-    Returns:
-        float: Mobility (m^2/V*s).
-    """
+    """Calculates Mobility = Beta_eff / C'ox."""
     if cox_prime == 0:
         return 0.0
     return beta_eff / cox_prime
 
 def get_temp_key(val):
+    """Returns rounded integer temperature."""
+    return int(round(val))
+
+# --- PLOTTING FUNCTIONS ---
+
+def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_base="Plot"):
     """
-    Standardize temperature keys to integers to avoid float mismatch issues
-    when mapping data between files (e.g. 27.0 vs 27).
+    Generates a single window with 4 subplots showing the data in:
+    1. Linear Scale
+    2. Scientific Axis
+    3. Log Scale (Semilogy)
+    4. IEEE-like Style (Serif font, compact)
     
     Args:
-        val (float): Temperature value.
-        
-    Returns:
-        int: Rounded integer temperature.
+        x_data (list/array): The X-axis data.
+        y_data (list/array): The Y-axis data.
+        x_label (str): Label for X-axis.
+        y_label (str): Label for Y-axis.
+        title_base (str): Main title for the window.
     """
-    return int(round(val))
+    # Create a 2x2 grid of subplots
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 8))
+    fig.suptitle(f"{title_base} - 4 Views", fontsize=14)
+
+    # 1. Linear Scale
+    ax1.plot(x_data, y_data, 'o-', linewidth=2, label="Data")
+    ax1.set_xlabel(x_label)
+    ax1.set_ylabel(y_label)
+    ax1.set_title("1. Linear Scale")
+    ax1.grid(True)
+    ax1.legend()
+
+    # 2. Scientific Axis
+    ax2.plot(x_data, y_data, 'o-', linewidth=2, label="Data", color='orange')
+    ax2.set_xlabel(x_label)
+    ax2.set_ylabel(y_label)
+    ax2.set_title("2. Scientific Axis")
+    ax2.grid(True)
+    
+    # Apply scientific formatting to Y axis
+    formatter = ScalarFormatter()
+    formatter.set_powerlimits((0, 0))
+    ax2.yaxis.set_major_formatter(formatter)
+
+    # 3. Log Scale
+    # Handle negative values safely for log plot by taking absolute value
+    # Check if input is a list or numpy array
+    if hasattr(y_data, 'tolist'):
+        y_abs = [abs(y) for y in y_data]
+    else:
+        y_abs = [abs(y) for y in y_data]
+        
+    ax3.semilogy(x_data, y_abs, 'o-', linewidth=2, label="|Data|", color='green')
+    ax3.set_xlabel(x_label)
+    ax3.set_ylabel(f"|{y_label}|")
+    ax3.set_title("3. Log Scale")
+    ax3.grid(True, which="both")
+
+    # 4. IEEE-like Style
+    # We mimic the style locally
+    ax4.plot(x_data, y_data, 'o-', linewidth=1.5, color='black', markersize=4, label="Data")
+    
+    # Use serif font family for this subplot's labels
+    font_ieee = {'family': 'serif', 'size': 10}
+    
+    ax4.set_xlabel(x_label, fontdict=font_ieee)
+    ax4.set_ylabel(y_label, fontdict=font_ieee)
+    ax4.set_title("4. IEEE Style", fontdict=font_ieee)
+    
+    # Thinner grid lines
+    ax4.grid(True, linewidth=0.5, linestyle='--')
+    ax4.tick_params(axis='both', which='major', labelsize=9)
+    
+    # Use scientific notation for IEEE as well usually
+    ax4.yaxis.set_major_formatter(formatter)
+
+    plt.tight_layout()
+    # plt.show() must be called by the user script to keep the window open
+    # We leave it out here so user can generate multiple plots before showing
+    pass

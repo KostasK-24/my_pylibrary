@@ -19,10 +19,11 @@ from .core import (
     calculate_cgb_ekv,
     calculate_beta_eff,
     calculate_mobility,
-    get_temp_key
+    get_temp_key,
+    plot_four_styles
 )
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
@@ -42,5 +43,6 @@ __all__ = [
     "calculate_cgb_ekv",
     "calculate_beta_eff",
     "calculate_mobility",
-    "get_temp_key"
+    "get_temp_key",
+    "plot_four_styles"
 ]
