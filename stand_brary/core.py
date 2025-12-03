@@ -1,3 +1,48 @@
+"""
+Stand Brary Library - Core Physics & Utility Functions
+
+This module provides essential tools for semiconductor parameter extraction, 
+numerical analysis, and file handling.
+
+CONTEXT OF EQUATIONS & FUNCTIONS:
+
+1. FUNDAMENTAL CONSTANTS:
+   - K_BOLTZMANN (k): 1.38e-23 J/K
+   - Q_ELEMENTARY (q): 1.602e-19 C
+
+2. PHYSICS CALCULATIONS:
+   - Thermal Voltage (Ut): Ut = kT/q. Essential for normalization in EKV model.
+   - Specific Current (Ispec): The normalization current in the EKV model.
+     Formula: Ispec = (2 * n * Ut)^2 * (W/L) * Beta. 
+     (Simplified extraction uses derivative method).
+   - Inversion Coefficient (IC): Measures the level of inversion (Weak/Moderate/Strong).
+     Formula: IC = Id / Ispec.
+   - Surface Potential (qs): Normalized surface potential approximation.
+     Formula: qs = sqrt(0.25 + IC) - 0.5.
+   - Effective Gain Factor (Beta_eff): Extracted from Ispec or Source Current.
+     Formula: Beta_eff = Is / (n0 * Ut^2).
+   - Mobility (Mu): Carrier mobility extracted from Beta_eff.
+     Formula: Mu = Beta_eff / C'ox.
+
+3. CAPACITANCE MODELING (EKV):
+   - Cgs: Normalized Gate-Source Capacitance.
+     Formula: cgs = (qs/3) * (2*qs + 3) / (qs + 1)^2.
+   - Cgb: Normalized Gate-Bulk Capacitance.
+     Formula: cgb = ((n-1)/n) * (1 - cgs - cgd).
+
+4. NUMERICAL TOOLS:
+   - Centered Derivative: Calculates dy/dx using (y_next - y_prev) / (x_next - x_prev).
+     Crucial for extracting slope (n) and transconductance (gm).
+   - Linear Interpolation: Finds exact crossing points (e.g., Vth where Vs=0).
+     Formula: x = x0 + (target_y - y0) * (x1 - x0) / (y1 - y0).
+   - Find Min/Max: Robust finder for max derivative or min value ignoring noise.
+
+5. UTILITIES:
+   - File Access: Safely checks file existence and permissions.
+   - Smart Loader: Parses complex text files with multiple data blocks.
+   - Temp Key: Standardizes temperature keys (float -> int) for consistent mapping.
+"""
+
 import os
 import math
 
@@ -199,3 +244,143 @@ def calculate_linear_interpolation(x0, y0, x1, y1, target_y):
         return None  # Avoid division by zero
     
     return x0 + (target_y - y0) * (x1 - x0) / (y1 - y0)
+
+
+def calculate_ispec(max_derivative, thermal_voltage):
+    """
+    Calculates the Specific Current (Ispec) based on the EKV model extraction method.
+    
+    Formula: Ispec = (2 * n * Ut)^2 * (W/L) * Beta 
+             Here simplified extraction assumes: Ispec = (2 * Max_Derivative * Ut)^2
+             Where Max_Derivative = max(d(sqrt(Id))/dVg) which approximates sqrt(Beta/2)
+    
+    Args:
+        max_derivative (float): The maximum value of the derivative d(sqrt(Id))/dVg.
+        thermal_voltage (float): Thermal voltage (Ut) in Volts.
+        
+    Returns:
+        float: The calculated Specific Current (Ispec) in Amps.
+    """
+    return (2 * max_derivative) * (thermal_voltage ** 2)
+
+def calculate_inversion_coefficient(id_abs, ispec):
+    """
+    Calculates the Inversion Coefficient (IC).
+    
+    Formula: IC = Id / Ispec
+    
+    Args:
+        id_abs (float): Absolute value of Drain Current (Id).
+        ispec (float): Specific Current (Ispec).
+        
+    Returns:
+        float: The Inversion Coefficient (unitless). Returns 0 if Ispec is 0.
+    """
+    if ispec == 0:
+        return 0.0
+    return id_abs / ispec
+
+def calculate_surface_potential_approx(ic):
+    """
+    Calculates the normalized surface potential (qs) approximation from Inversion Coefficient.
+    
+    Formula: qs = sqrt(0.25 + IC) - 0.5
+    
+    Args:
+        ic (float): Inversion Coefficient.
+        
+    Returns:
+        float: Normalized surface potential (qs).
+    """
+    return math.sqrt(0.25 + ic) - 0.5
+
+def calculate_cgs_ekv(qs):
+    """
+    Calculates the normalized Gate-Source Capacitance (cgs) using EKV charge model approximation.
+    
+    Formula: cgs = (qs/3) * (2*qs + 3) / (qs + 1)^2
+    
+    Args:
+        qs (float): Normalized surface potential.
+        
+    Returns:
+        float: Normalized cgs.
+    """
+    # Avoid division by zero if qs approaches -1 (though physically qs >= 0)
+    if qs <= -1: 
+        return 0.0
+        
+    term1 = qs / 3.0
+    term2 = (2.0 * qs + 3.0)
+    term3 = (qs + 1.0) ** 2
+    return term1 * (term2 / term3)
+
+def calculate_cgb_ekv(n, cgs, cgd=0.0):
+    """
+    Calculates the normalized Gate-Bulk Capacitance (cgb) using EKV model.
+    
+    Formula: cgb = ((n-1)/n) * (1 - cgs - cgd)
+    
+    Args:
+        n (float): Slope factor (n).
+        cgs (float): Normalized cgs.
+        cgd (float): Normalized cgd (default 0.0).
+        
+    Returns:
+        float: Normalized cgb.
+    """
+    if n == 0: 
+        return 0.0 # Safety check
+        
+    term_n = (n - 1.0) / n
+    return term_n * (1.0 - cgs - cgd)
+
+def calculate_beta_eff(isource, n0, ut):
+    """
+    Calculates the Effective Gain Factor (Beta_eff).
+    
+    Formula: Beta_eff = Is / (n0 * Ut^2)
+             Where Is = 2 * Isource (Specific Current)
+             Adjusted to user logic: Beta_eff derived from source current at Vth.
+    
+    Args:
+        isource (float): Source current at Vth (or Ispec/2).
+        n0 (float): Slope factor at Vth.
+        ut (float): Thermal voltage in Volts.
+        
+    Returns:
+        float: Beta_eff (A/V^2).
+    """
+    if n0 == 0 or ut == 0:
+        return 0.0
+    return isource / (n0 * (ut ** 2))
+
+def calculate_mobility(beta_eff, cox_prime):
+    """
+    Calculates Mobility (Mu).
+    
+    Formula: Mu = Beta_eff / C'ox
+    
+    Args:
+        beta_eff (float): Effective Gain Factor (A/V^2).
+        cox_prime (float): Oxide Capacitance per unit area (F/m^2 or F).
+        
+    Returns:
+        float: Mobility (m^2/V*s).
+    """
+    if cox_prime == 0:
+        return 0.0
+    return beta_eff / cox_prime
+
+def get_temp_key(val):
+    """
+    Standardize temperature keys to integers to avoid float mismatch issues
+    when mapping data between files (e.g. 27.0 vs 27).
+    
+    Args:
+        val (float): Temperature value.
+        
+    Returns:
+        int: Rounded integer temperature.
+    """
+    return int(round(val))
