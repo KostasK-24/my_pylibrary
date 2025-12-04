@@ -6,4 +6,5 @@ stand_brary/core.py
 stand_brary.egg-info/PKG-INFO
 stand_brary.egg-info/SOURCES.txt
 stand_brary.egg-info/dependency_links.txt
+stand_brary.egg-info/requires.txt
 stand_brary.egg-info/top_level.txt
