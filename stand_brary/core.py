@@ -7,44 +7,31 @@ numerical analysis, file handling, and plotting.
 CONTEXT OF EQUATIONS & FUNCTIONS:
 
 1. FUNDAMENTAL CONSTANTS:
-   - K_BOLTZMANN (k): 1.38e-23 J/K
-   - Q_ELEMENTARY (q): 1.602e-19 C
+   - K_BOLTZMANN (k): 1.38e-23 J/K [Source: 15]
+   - Q_ELEMENTARY (q): 1.602e-19 C [Source: 15]
+   - EPSILON_OX: 3.45e-11 F/m [Source: 9]
+   - EPSILON_SI: 1.04e-10 F/m [Source: 9]
 
 2. PHYSICS CALCULATIONS:
-   - Thermal Voltage (Ut): Ut = kT/q. Essential for normalization in EKV model.
+   - Thermal Voltage (Ut): Ut = kT/q. [Source: 20]
    - Specific Current (Ispec): The normalization current in the EKV model.
-     Formula: Ispec = (2 * n * Ut)^2 * (W/L) * Beta. 
-     (Simplified extraction uses derivative method).
-   - Inversion Coefficient (IC): Measures the level of inversion (Weak/Moderate/Strong).
-     Formula: IC = Id / Ispec.
+     Formula: Ispec = 2 * n * Ut^2 * (W/L) * Beta. [Source: 19]
+   - Inversion Coefficient (IC): Measures the level of inversion.
+     Formula: IC = Id / Ispec. [Source: 19]
    - Surface Potential (qs): Normalized surface potential approximation.
-     Formula: qs = sqrt(0.25 + IC) - 0.5.
+     Formula: qs = sqrt(0.25 + IC) - 0.5. [Source: 35]
    - Effective Gain Factor (Beta_eff): Extracted from Ispec or Source Current.
-     Formula: Beta_eff = Is / (n0 * Ut^2).
    - Mobility (Mu): Carrier mobility extracted from Beta_eff.
-     Formula: Mu = Beta_eff / C'ox.
+     Formula: Mu = (Beta_eff * L) / (C'ox * W). [Source: 19]
 
 3. CAPACITANCE MODELING (EKV):
-   - Cgs: Normalized Gate-Source Capacitance.
-     Formula: cgs = (qs/3) * (2*qs + 3) / (qs + 1)^2.
-   - Cgb: Normalized Gate-Bulk Capacitance.
-     Formula: cgb = ((n-1)/n) * (1 - cgs - cgd).
+   - Cgs: Normalized Gate-Source Capacitance. [Source: 85]
+   - Cgd: Normalized Gate-Drain Capacitance. [Source: 77]
+   - Cgb: Normalized Gate-Bulk Capacitance. [Source: 80]
 
-4. NUMERICAL TOOLS:
-   - Centered Derivative: Calculates dy/dx using (y_next - y_prev) / (x_next - x_prev).
-     Crucial for extracting slope (n) and transconductance (gm).
-   - Linear Interpolation: Finds exact crossing points (e.g., Vth where Vs=0).
-     Formula: x = x0 + (target_y - y0) * (x1 - x0) / (y1 - y0).
-   - Find Min/Max: Robust finder for max derivative or min value ignoring noise.
-
-5. PLOTTING TOOLS:
-   - plot_four_styles: Creates a 2x2 grid visualizing data in Linear, Scientific, 
-     Log, and IEEE (Serif) styles.
-
-6. UTILITIES:
-   - File Access: Safely checks file existence and permissions.
-   - Smart Loader: Parses complex text files with multiple data blocks.
-   - Temp Key: Standardizes temperature keys (float -> int) for consistent mapping.
+4. NUMERICAL & PLOTTING TOOLS:
+   - Centered Derivative, Linear Interpolation, Smart Loader.
+   - Plotting tools for IEEE/Scientific visualization.
 """
 
 import os
@@ -59,19 +46,27 @@ except ImportError:
 
 # --- Fundamental Physical Constants ---
 
-# Boltzmann's constant (J/K)
+# Boltzmann's constant (J/K) [Source: 15]
 K_BOLTZMANN = 1.380649e-23
 
-# Elementary charge (C)
+# Elementary charge (C) [Source: 15]
 Q_ELEMENTARY = 1.602176634e-19
+
+# Permittivity of Oxide (F/m) [Source: 9]
+EPSILON_OX = 3.45e-11
+
+# Permittivity of Silicon (F/m) [Source: 9]
+EPSILON_SI = 1.04e-10
+
+# Intrinsic Carrier Concentration (cm^-3 at 300K) [Source: 13]
+NI_300K = 1.19e10
 
 # --- Reusable Utility Functions ---
 
 def calculate_thermal_voltage(temperature_celsius):
     """
     Calculates the thermal voltage (Ut) for a given temperature in Celsius.
-    
-    Ut = (k * T_Kelvin) / q
+    Ut = (k * T_Kelvin) / q [Source: 20]
     
     Args:
         temperature_celsius (float): Temperature in degrees Celsius.
@@ -84,9 +79,7 @@ def calculate_thermal_voltage(temperature_celsius):
     return Ut, T_kelvin
 
 def check_file_access(filepath, mode='r'):
-    """
-    Checks if a file exists and if the user has the required permissions.
-    """
+    """Checks if a file exists and if the user has the required permissions."""
     if not os.path.exists(filepath):
         print(f"File Check Error: File not found at {filepath}")
         return False
@@ -124,9 +117,7 @@ def calculate_centered_derivative(y_data, x_data):
     return derivative_list
 
 def find_abs_min_or_max(data_list, find_min=True):
-    """
-    Finds the absolute value of the minimum or maximum value in a list.
-    """
+    """Finds the absolute value of the minimum or maximum value in a list."""
     valid_data = [d for d in data_list if isinstance(d, (int, float))]
     
     if not valid_data:
@@ -196,29 +187,101 @@ def load_text_file_by_column(filepath):
         return None
 
 def calculate_linear_interpolation(x0, y0, x1, y1, target_y):
-    """
-    Finds x corresponding to target_y using linear interpolation.
-    """
+    """Finds x corresponding to target_y using linear interpolation."""
     if y1 == y0:
         return None  
     return x0 + (target_y - y0) * (x1 - x0) / (y1 - y0)
 
+def get_temp_key(val):
+    """Returns rounded integer temperature."""
+    return int(round(val))
+
+
+# --- PHYSICS & MODELING FUNCTIONS ---
+
+def calculate_cox_prime(t_ox):
+    """
+    Calculates Oxide Capacitance per unit area (Cox').
+    Formula: C'ox = E_ox / T_ox [Source: 8]
+    """
+    if t_ox <= 0: return 0.0
+    return EPSILON_OX / t_ox
+
+def calculate_gamma(n_sub, cox_prime):
+    """
+    Calculates Body Effect Parameter (Gamma).
+    Formula: Gamma = sqrt(2 * q * E_si * N_sub) / C'ox [Source: 8]
+    """
+    if cox_prime == 0: return 0.0
+    numerator = math.sqrt(2 * Q_ELEMENTARY * EPSILON_SI * n_sub)
+    return numerator / cox_prime
+
+def calculate_fermi_potential(ut, n_sub, ni=NI_300K):
+    """
+    Calculates Fermi Potential (Phi).
+    Formula: Phi = 2 * Ut * ln(N_sub / ni) [Source: 8]
+    """
+    if ni == 0 or n_sub <= 0: return 0.0
+    return 2 * ut * math.log(n_sub / ni)
+
+def calculate_pinch_off_voltage(vg, vto, n):
+    """
+    Calculates Pinch-off Voltage (Vp).
+    Formula: Vp ~= (Vg - Vto) / n [Source: 11]
+    """
+    if n == 0: return 0.0
+    return (vg - vto) / n
+
+def calculate_slope_factor(gamma, vp, phi):
+    """
+    Calculates Slope Factor (n).
+    Formula: n = 1 + gamma / (2 * sqrt(Vp + Phi)) [Source: 17]
+    """
+    denom_inner = vp + phi
+    if denom_inner <= 0: return 1.0 # Safety fallback
+    return 1 + (gamma / (2 * math.sqrt(denom_inner)))
+
 def calculate_ispec(max_derivative, thermal_voltage):
-    """Calculates Ispec = (2 * max_derivative * Ut)^2."""
+    """
+    Calculates extracted Ispec from transconductance data.
+    Formula: Ispec = (2 * max_derivative * Ut)^2
+    """
     return (2 * max_derivative * thermal_voltage) ** 2
 
+def calculate_theoretical_ispec(n, ut, mobility, cox_prime, w, l):
+    """
+    Calculates Theoretical Specific Current (Ispec).
+    Formula: Ispec = 2 * n * Ut^2 * Beta_tech * (W/L) [Source: 19]
+    """
+    if l == 0: return 0.0
+    beta_tech = mobility * cox_prime
+    return 2 * n * (ut**2) * beta_tech * (w / l)
+
 def calculate_inversion_coefficient(id_abs, ispec):
-    """Calculates Inversion Coefficient (IC = Id / Ispec)."""
+    """
+    Calculates Inversion Coefficient (IC = Id / Ispec).
+    [Source: 19]
+    """
     if ispec == 0:
         return 0.0
     return id_abs / ispec
 
 def calculate_surface_potential_approx(ic):
-    """Calculates qs = sqrt(0.25 + IC) - 0.5."""
+    """
+    Calculates normalized surface potential (qs) from IC.
+    Formula: qs = sqrt(0.25 + IC) - 0.5 [Source: 35]
+    """
+    if ic < -0.25: return 0.0
     return math.sqrt(0.25 + ic) - 0.5
 
+# --- Capacitance Functions ---
+
 def calculate_cgs_ekv(qs):
-    """Calculates normalized Cgs using EKV model."""
+    """
+    Calculates normalized Gate-Source Capacitance (cgs).
+    Formula: cgs = (qs/3) * (2qs + 3) / (qs + 1)^2 [Source: 85]
+    (Simplified Saturation/Weak Inv form)
+    """
     if qs <= -1: 
         return 0.0
     term1 = qs / 3.0
@@ -226,28 +289,126 @@ def calculate_cgs_ekv(qs):
     term3 = (qs + 1.0) ** 2
     return term1 * (term2 / term3)
 
+def calculate_cgd_ekv(qs, qd):
+    """
+    Calculates normalized Gate-Drain Capacitance (cgd).
+    Formula: cgd = (qd/3) * (2qd + 4qs + 3) / (qs + qd + 1)^2 [Source: 77]
+    """
+    denom = (qs + qd + 1.0)**2
+    if denom == 0: return 0.0
+    term = (2.0 * qd + 4.0 * qs + 3.0)
+    return (qd / 3.0) * (term / denom)
+
 def calculate_cgb_ekv(n, cgs, cgd=0.0):
-    """Calculates normalized Cgb using EKV model."""
+    """
+    Calculates normalized Gate-Bulk Capacitance (cgb).
+    Formula: cgb = ((n-1)/n) * (1 - cgs - cgd) [Source: 80]
+    """
     if n == 0: 
         return 0.0 
     term_n = (n - 1.0) / n
     return term_n * (1.0 - cgs - cgd)
 
+# --- Process Extraction Functions ---
+
 def calculate_beta_eff(isource, n0, ut):
-    """Calculates Beta_eff = Is / (n0 * Ut^2)."""
+    """
+    Calculates Beta_eff (Total Device Beta).
+    Formula: Beta_eff = Is / (n0 * Ut^2) [Source: 19 derived]
+    """
     if n0 == 0 or ut == 0:
         return 0.0
     return isource / (n0 * (ut ** 2))
 
-def calculate_mobility(beta_eff, cox_prime):
-    """Calculates Mobility = Beta_eff / C'ox."""
-    if cox_prime == 0:
+def calculate_mobility(beta_eff, cox_prime, w, l):
+    """
+    Calculates Mobility (Mu) from effective Beta.
+    
+    Formula: Mu = (Beta_eff * L) / (C'ox * W) [Source: 19 rearranged]
+    
+    *Altered*: Added 'w' and 'l' arguments to ensure dimensional correctness.
+    """
+    if cox_prime == 0 or w == 0:
         return 0.0
-    return beta_eff / cox_prime
+    return (beta_eff * l) / (cox_prime * w)
 
-def get_temp_key(val):
-    """Returns rounded integer temperature."""
-    return int(round(val))
+# --- Current & Time Constants ---
+
+def calculate_drain_current_strong(n, beta, vp, vs):
+    """
+    Calculates Drain Current in Strong Inversion (Saturation).
+    Formula: Id ~= (n * Beta / 2) * (Vp - Vs)^2 [Source: 51]
+    Note: Beta here is total device beta (Beta_eff).
+    """
+    if vp < vs: return 0.0
+    return (n * beta / 2.0) * ((vp - vs) ** 2)
+
+def calculate_drain_current_weak(id0, vg, vs, n, ut):
+    """
+    Calculates Drain Current in Weak Inversion.
+    Formula: Id = Id0 * exp((Vg - n*Vs) / (n*Ut)) [Source: 64]
+    """
+    if n == 0 or ut == 0: return 0.0
+    exponent = (vg - n * vs) / (n * ut)
+    return id0 * math.exp(exponent)
+
+def calculate_vds_sat(ut, ic):
+    """
+    Calculates Drain-Source Saturation Voltage.
+    Formula: Vds_sat = 2*Ut * sqrt(IC + 0.25) + 3*Ut [Source: 106]
+    """
+    if ic < -0.25: return 3*ut
+    return 2 * ut * math.sqrt(ic + 0.25) + 3 * ut
+
+def calculate_tau_0(l, mobility, ut):
+    """
+    Calculates intrinsic time constant (Tau_0).
+    Formula: Tau_0 = L^2 / (Mu * Ut) [Source: 23]
+    """
+    if mobility == 0 or ut == 0: return 0.0
+    return (l**2) / (mobility * ut)
+
+def calculate_ft_saturation(mobility, ut, l_eff, ic):
+    """
+    Calculates Unity Gain Transit Frequency (fT) in Saturation.
+    Formula: fT = (Mu * Ut) / (2 * pi * L^2) * (sqrt(1 + 4*IC) - 1) [Source: 121]
+    """
+    if l_eff == 0: return 0.0
+    prefactor = (mobility * ut) / (2 * math.pi * (l_eff**2))
+    term = math.sqrt(1 + 4 * ic) - 1
+    return prefactor * term
+
+# --- Noise & Mismatch ---
+
+def calculate_flicker_noise(kf, cox_prime, w, l, freq, af, gm):
+    """
+    Calculates Flicker Noise Spectral Density (S_ID).
+    Formula: S_ID = (gm^2 * KF) / (C'ox * W * L * f^AF) [Source: 129]
+    """
+    if cox_prime == 0 or w == 0 or l == 0 or freq == 0: return 0.0
+    denom = cox_prime * w * l * (freq ** af)
+    return ((gm**2) * kf) / denom
+
+def calculate_thermal_noise(k, temp_kelvin, gamma_noise, gms):
+    """
+    Calculates Thermal Noise Spectral Density (S_ID).
+    Formula: S_ID = 4 * k * T * gamma * gms [Source: 130]
+    """
+    return 4 * k * temp_kelvin * gamma_noise * gms
+
+def calculate_current_mismatch(sigma_vt, gm, id_val, a_beta, w, l):
+    """
+    Calculates Drain Current Mismatch (Sigma_dId/Id).
+    Formula: sqrt( (A_beta/sqrt(WL))^2 + (gm/Id * Sigma_vt)^2 ) [Source: 133]
+    Note: A_beta/sqrt(WL) represents Sigma_beta/beta.
+    """
+    if w == 0 or l == 0 or id_val == 0: return 0.0
+    
+    sigma_beta_norm = a_beta / math.sqrt(w * l)
+    term2 = (gm / id_val) * sigma_vt
+    
+    return math.sqrt(sigma_beta_norm**2 + term2**2)
+
 
 # --- PLOTTING FUNCTIONS ---
 
@@ -324,5 +485,4 @@ def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_b
 
     plt.tight_layout()
     # plt.show() must be called by the user script to keep the window open
-    # We leave it out here so user can generate multiple plots before showing
     pass

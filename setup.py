@@ -5,16 +5,17 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="stand_brary",
-    version="1.3.0",
+    version="1.4.0",
     author="Kostas",
     author_email="gkaralis@tuc.gr",
-    description="A collection of utility functions for various calculations and data processing",
+    description="Semiconductor parameter extraction tools, physics formulas, and data utilities.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
@@ -24,6 +25,7 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Topic :: Software Development :: Libraries",
+        "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
     ],
     python_requires=">=3.6",
     install_requires=[
