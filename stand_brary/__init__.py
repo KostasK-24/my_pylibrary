@@ -15,6 +15,7 @@ from .core import (
     # Utilities
     calculate_thermal_voltage,
     check_file_access,
+    parse_simulation_file,
     calculate_centered_derivative,
     find_abs_min_or_max,
     load_text_file_by_column,
@@ -55,7 +56,7 @@ from .core import (
     plot_four_styles
 )
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
@@ -67,6 +68,7 @@ __all__ = [
     "NI_300K",
     "calculate_thermal_voltage",
     "check_file_access",
+    "parse_simulation_file",
     "calculate_centered_derivative",
     "find_abs_min_or_max",
     "load_text_file_by_column",

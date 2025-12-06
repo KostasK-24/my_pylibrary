@@ -11,31 +11,62 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
    - Q_ELEMENTARY (q): 1.602e-19 C [Source: 15]
    - EPSILON_OX: 3.45e-11 F/m [Source: 9]
    - EPSILON_SI: 1.04e-10 F/m [Source: 9]
+   - NI_300K: 1.19e10 cm^-3 [Source: 13]
 
-2. PHYSICS CALCULATIONS:
-   - Thermal Voltage (Ut): Ut = kT/q. [Source: 20]
-   - Specific Current (Ispec): The normalization current in the EKV model.
-     Formula: Ispec = 2 * n * Ut^2 * (W/L) * Beta. [Source: 19]
-   - Inversion Coefficient (IC): Measures the level of inversion.
-     Formula: IC = Id / Ispec. [Source: 19]
-   - Surface Potential (qs): Normalized surface potential approximation.
-     Formula: qs = sqrt(0.25 + IC) - 0.5. [Source: 35]
-   - Effective Gain Factor (Beta_eff): Extracted from Ispec or Source Current.
-   - Mobility (Mu): Carrier mobility extracted from Beta_eff.
-     Formula: Mu = (Beta_eff * L) / (C'ox * W). [Source: 19]
+2. UTILITY & FILE HANDLING:
+   - calculate_thermal_voltage(temperature_celsius)
+   - check_file_access(filepath, mode)
+   - parse_simulation_file(input_path, output_dir, output_name, col_mapping)
+   - load_text_file_by_column(filepath)
+   - get_temp_key(val)
 
-3. CAPACITANCE MODELING (EKV):
-   - Cgs: Normalized Gate-Source Capacitance. [Source: 85]
-   - Cgd: Normalized Gate-Drain Capacitance. [Source: 77]
-   - Cgb: Normalized Gate-Bulk Capacitance. [Source: 80]
+3. NUMERICAL ANALYSIS:
+   - calculate_centered_derivative(y_data, x_data)
+   - find_abs_min_or_max(data_list, find_min)
+   - calculate_linear_interpolation(x0, y0, x1, y1, target_y)
 
-4. NUMERICAL & PLOTTING TOOLS:
-   - Centered Derivative, Linear Interpolation, Smart Loader.
-   - Plotting tools for IEEE/Scientific visualization.
+4. PHYSICS - MOS FUNDAMENTALS:
+   - calculate_cox_prime(t_ox)
+   - calculate_gamma(n_sub, cox_prime)
+   - calculate_fermi_potential(ut, n_sub, ni)
+   - calculate_pinch_off_voltage(vg, vto, n)
+   - calculate_slope_factor(gamma, vp, phi)
+
+5. PHYSICS - EKV SPECIFIC:
+   - calculate_ispec(max_derivative, thermal_voltage)
+   - calculate_theoretical_ispec(n, ut, mobility, cox_prime, w, l)
+   - calculate_inversion_coefficient(id_abs, ispec)
+   - calculate_surface_potential_approx(ic)
+
+6. CAPACITANCE MODELING (EKV):
+   - calculate_cgs_ekv(qs)
+   - calculate_cgd_ekv(qs, qd)
+   - calculate_cgb_ekv(n, cgs, cgd)
+
+7. PROCESS EXTRACTION:
+   - calculate_beta_eff(isource, n0, ut)
+   - calculate_mobility(beta_eff, cox_prime, w, l)
+
+8. CURRENT & TIME CONSTANTS:
+   - calculate_drain_current_strong(n, beta, vp, vs)
+   - calculate_drain_current_weak(id0, vg, vs, n, ut)
+   - calculate_vds_sat(ut, ic)
+   - calculate_tau_0(l, mobility, ut)
+   - calculate_ft_saturation(mobility, ut, l_eff, ic)
+
+9. NOISE & MISMATCH:
+   - calculate_flicker_noise(kf, cox_prime, w, l, freq, af, gm)
+   - calculate_thermal_noise(k, temp_kelvin, gamma_noise, gms)
+   - calculate_current_mismatch(sigma_vt, gm, id_val, a_beta, w, l)
+
+10. PLOTTING:
+    - plot_four_styles(x_data, y_data, x_label, y_label, title_base)
 """
 
 import os
 import math
+import sys
+
 # New imports for plotting
 try:
     import matplotlib.pyplot as plt
@@ -88,10 +119,122 @@ def check_file_access(filepath, mode='r'):
         print(f"File Check Error: No permission to read file at {filepath}")
         return False
     elif mode == 'w' and not os.access(filepath, os.W_OK):
-        print(f"File Check Error: No permission to write to file at {filepath}")
-        return False
+        # Check if directory is writable if file doesn't exist yet
+        directory = os.path.dirname(filepath)
+        if not os.path.exists(filepath) and not os.access(directory, os.W_OK):
+             print(f"File Check Error: No permission to write to directory {directory}")
+             return False
+        # If file exists, check if it is writable
+        if os.path.exists(filepath) and not os.access(filepath, os.W_OK):
+            print(f"File Check Error: No permission to write to file at {filepath}")
+            return False
         
     return True
+
+def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
+    """
+    Parses a simulation file, filters columns, and saves to a specific directory.
+    Auto-detects format:
+      - .tsv: Tab separated, no pretty alignment.
+      - .csv: Comma separated, no pretty alignment.
+      - .txt: Space separated, centered alignment (25 chars).
+    
+    Args:
+        input_file_path (str): Absolute path to source file.
+        output_directory (str): The directory where the result file will be saved.
+        output_filename (str): Name of the file to save (e.g., 'results.tsv').
+        column_mapping (list): List of columns to keep (use "-" to skip).
+    """
+    # Combine directory and filename
+    output_full_path = os.path.join(output_directory, output_filename)
+
+    # Use existing library function to check access
+    if not check_file_access(input_file_path, 'r'):
+        sys.exit(1)
+        
+    # Ensure output directory exists
+    if not os.path.exists(output_directory):
+        print(f"Error: Output directory does not exist: {output_directory}")
+        sys.exit(1)
+
+    print(f"Processing: {input_file_path}")
+    print(f"Saving to:  {output_full_path}")
+
+    # --- Determine Format ---
+    is_tsv = output_filename.lower().endswith('.tsv')
+    is_csv = output_filename.lower().endswith('.csv')
+    
+    if is_tsv:
+        separator = "\t"
+        use_pretty_align = False
+    elif is_csv:
+        separator = ","
+        use_pretty_align = False
+    else:
+        separator = "" 
+        use_pretty_align = True
+        col_width = 25
+
+    # --- Prepare Columns ---
+    indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
+    new_header_list = [col for col in column_mapping if col != "-"]
+    
+    # --- Construct Header ---
+    if use_pretty_align:
+        formatted_header_list = [f"{col:^{col_width}}" for col in new_header_list]
+        new_header_str = "".join(formatted_header_list)
+    else:
+        new_header_str = separator.join(new_header_list)
+
+    expected_raw_header = None 
+
+    try:
+        with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
+            
+            for line_num, line in enumerate(infile):
+                parts = line.split()
+                if not parts: continue
+
+                # Check if this line is a Header or Data
+                is_header = False
+                try:
+                    float(parts[0])
+                except ValueError:
+                    is_header = True
+
+                if is_header:
+                    current_raw_header = " ".join(parts)
+
+                    if expected_raw_header is None:
+                        expected_raw_header = current_raw_header
+                    else:
+                        if current_raw_header != expected_raw_header:
+                            print(f"\nError at line {line_num + 1}: Header format changed.")
+                            sys.exit(1)
+                    
+                    outfile.write(new_header_str + "\n")
+                
+                else:
+                    try:
+                        selected_data = [parts[i] for i in indices_to_keep]
+                        
+                        if use_pretty_align:
+                            formatted_data = [f"{val:^{col_width}}" for val in selected_data]
+                            line_to_write = "".join(formatted_data)
+                        else:
+                            line_to_write = separator.join(selected_data)
+                        
+                        outfile.write(line_to_write + "\n")
+
+                    except IndexError:
+                        print(f"Error at line {line_num + 1}: Missing columns.")
+                        sys.exit(1)
+
+        print(f"Success! Results saved to: {output_full_path}")
+
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        sys.exit(1)
 
 def calculate_centered_derivative(y_data, x_data):
     """
