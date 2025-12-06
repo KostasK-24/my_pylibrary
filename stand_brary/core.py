@@ -14,7 +14,7 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
    - NI_300K: 1.19e10 cm^-3 [Source: 13]
 
 2. UTILITY & FILE HANDLING:
-   - parse_simulation_file: Robust "Sandwich" parsing for sparse Ngspice data.
+   - parse_simulation_file: Robust "Split-Merge" parsing for sparse Ngspice data.
    - export_vectors_and_scalars: Generic TSV export.
    - load_scalar_map / load_vector_map: Generic loading.
    - check_file_access
@@ -69,13 +69,13 @@ def check_file_access(filepath, mode='r'):
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
     """
-    Parses a simulation file with "Sandwich" logic for sparse Ngspice data.
+    Parses a simulation file with "Split-Merge" logic for sparse Ngspice data.
     
-    The Problem: Ngspice drops 'Outer Loop' variables (middle columns) in subsequent lines.
-    The Fix: 
-      1. Determines 'Full Width' from the first valid data line.
-      2. If a line is shorter, it fills from the Left (Start) and Right (End).
-      3. The 'Gap' in the middle is filled with cached values from the previous full line.
+    Logic:
+    1. Identifies the 'Temperature' column as the Pivot.
+    2. Separates user-requested columns into LEFT (Sweeps) and RIGHT (Results).
+    3. On sparse lines, reads LEFT from start of line, RIGHT from end of line, 
+       and fills the Pivot from cache.
     """
     output_full_path = os.path.join(output_directory, output_filename)
 
@@ -95,9 +95,34 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
     use_pretty_align = not (is_tsv or is_csv)
     col_width = 25
 
+    # 1. Identify indices to keep
     indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
     new_header_list = [col for col in column_mapping if col != "-"]
     
+    # 2. Identify the Pivot (Loop Variable)
+    temp_raw_idx = -1
+    for i, col in enumerate(column_mapping):
+        if "temp" in col.lower():
+            temp_raw_idx = i
+            break
+            
+    # 3. Categorize indices relative to Pivot
+    left_indices = []
+    right_indices = []
+    has_pivot_in_output = False
+    
+    for idx in indices_to_keep:
+        if temp_raw_idx != -1:
+            if idx < temp_raw_idx:
+                left_indices.append(idx)
+            elif idx > temp_raw_idx:
+                right_indices.append(idx)
+            else:
+                has_pivot_in_output = True
+        else:
+            # If no temp column defined, treat everything as Left
+            left_indices.append(idx)
+
     # --- Header String Construction ---
     if use_pretty_align:
         formatted_header_list = [f"{col:^{col_width}}" for col in new_header_list]
@@ -105,9 +130,10 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
     else:
         new_header_str = separator.join(new_header_list)
 
-    # --- State Tracking ---
-    full_width = 0
-    cache = [] # Stores the last "Full" line
+    # Cache for Forward Fill
+    cached_values = {}
+    full_width_detected = False
+    expected_full_width = len(column_mapping) # Rough guess, refined by first line
 
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
@@ -118,104 +144,100 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
                 parts = line.strip().split()
                 if not parts: continue
 
-                # Detect Header vs Data
+                # Skip Header lines
                 is_header = False
                 try:
                     float(parts[0])
                 except ValueError:
                     is_header = True
-
-                if is_header:
-                    continue # Skip raw headers
+                if is_header: continue
                 
-                # --- AUTO-DETECT WIDTH ---
+                # --- AUTO-DETECT Full Width ---
+                if not full_width_detected:
+                    if len(parts) >= expected_full_width:
+                        # This looks like a full line
+                        full_width_detected = True
+                        # Update cache with initial full line
+                        for i, val in enumerate(parts):
+                            cached_values[i] = val
+                
+                # --- Logic Split ---
                 current_width = len(parts)
+                final_row_values = []
                 
-                # Assume the FIRST data line we see defines the "Full Width"
-                if full_width == 0:
-                    full_width = current_width
-                    cache = parts # Initialize cache
-                
-                # Update cache if we see a full line again
-                if current_width == full_width:
-                    cache = parts
-                
-                # --- CONSTRUCT FULL ROW (Sandwich Logic) ---
-                # We want to reconstruct a list 'full_row' that has length 'full_width'
-                # using the data we have + cache for holes.
-                
-                if current_width == full_width:
-                    full_row = parts
-                else:
-                    # Sparse Line detected.
-                    # We assume data is missing from the "Middle-ish".
-                    # Ngspice usually keeps the Sweep (Left) and Results (Right).
-                    # Loop vars (Temp, Length) in the middle disappear.
-                    
-                    missing_count = full_width - current_width
-                    
-                    # Heuristic: The last N columns are usually the results (Ids, Ig, etc)
-                    # The first M columns are usually the sweep (Vg, Vs)
-                    # The missing stuff is usually immediately after the sweep variables.
-                    
-                    # However, strictly matching purely by "Right Alignment" is safest for Ngspice.
-                    # Ngspice logic: [Sweep_Vars] [Loop_Vars] [Result_Vars]
-                    # Next line:     [Sweep_Vars]             [Result_Vars]
-                    
-                    # We know the right-most columns align.
-                    # So we take the last 'current_width - 1' columns from 'parts' and align them to the right.
-                    # Wait, Inner Sweep (col 0) is always present.
-                    
-                    full_row = [None] * full_width
-                    
-                    # 1. Fill from Left (Sweep Variable - usually just index 0)
-                    # We assume at least the main sweep variable is present at index 0.
-                    full_row[0] = parts[0]
-                    
-                    # 2. Fill from Right (Results)
-                    # We match the end of 'parts' to the end of 'full_row'
-                    # We calculate how many "Result" columns we have.
-                    # Usually, everything after index 0 in the sparse line are results.
-                    results_count = current_width - 1
-                    
-                    if results_count > 0:
-                        # Copy the last N items from parts to the last N items of full_row
-                        full_row[-results_count:] = parts[-results_count:]
-                    
-                    # 3. Fill the Holes from Cache
-                    for i in range(full_width):
-                        if full_row[i] is None:
-                            full_row[i] = cache[i]
+                # A) Full Line: Standard Read
+                # We assume a line is 'Full' if it's roughly the size of the mapping
+                # or significantly larger than the Left+Right count.
+                is_full_line = (current_width >= expected_full_width) or (current_width > len(left_indices) + len(right_indices) + 1)
 
-                # --- EXTRACT USER COLUMNS ---
-                selected_data = []
-                try:
-                    for i in indices_to_keep:
-                        if i < len(full_row):
-                            val = full_row[i]
-                            selected_data.append(val)
+                if is_full_line:
+                    # Update Cache
+                    for i, val in enumerate(parts):
+                        cached_values[i] = val
+                    
+                    # Extract directly by index
+                    for idx in indices_to_keep:
+                        if idx < len(parts):
+                            final_row_values.append(parts[idx])
                         else:
-                            # If mapping index is outside even the full width, user error
-                            selected_data.append("NaN")
+                            final_row_values.append("NaN")
+                
+                # B) Sparse Line: Split-Merge Read
+                else:
+                    # 1. Read Left (Sweep) from Start
+                    # We blindly take the first N columns where N is len(left_indices)
+                    # This assumes the first N columns of the sparse line correspond exactly to the requested Left columns.
+                    # (In Ngspice 'v-sweep' etc are always first).
                     
-                    # Write Row
-                    if use_pretty_align:
-                        formatted_data = [f"{val:^{col_width}}" for val in selected_data]
-                        line_to_write = "".join(formatted_data)
-                    else:
-                        line_to_write = separator.join(selected_data)
+                    # Optimization: Map parts[0] to left_indices[0], parts[1] to left_indices[1]...
+                    # This assumes the indices_to_keep are contiguous at the start? 
+                    # Usually yes: [0, 1].
                     
-                    outfile.write(line_to_write + "\n")
+                    # Store what we extracted to reconstruct order later
+                    extracted_map = {}
+                    
+                    # Read Left
+                    for i, map_idx in enumerate(left_indices):
+                        if i < len(parts):
+                            extracted_map[map_idx] = parts[i]
+                        else:
+                            extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
+                            
+                    # Read Right
+                    # We take from the END of parts.
+                    # right_indices[0] corresponds to parts[-len(right)]
+                    num_right = len(right_indices)
+                    for i, map_idx in enumerate(right_indices):
+                        # Calculate negative index: -num_right + i
+                        # Ex: 2 right cols. i=0 -> -2. i=1 -> -1.
+                        part_idx = -num_right + i
+                        try:
+                            extracted_map[map_idx] = parts[part_idx]
+                        except IndexError:
+                            extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
 
-                except Exception as e:
-                    print(f"Error processing line {line_num + 1}: {e}")
-                    sys.exit(1)
+                    # Read Pivot (Temp) from Cache
+                    if has_pivot_in_output:
+                        extracted_map[temp_raw_idx] = cached_values.get(temp_raw_idx, "NaN")
+                    
+                    # Construct Final Row in Order
+                    for idx in indices_to_keep:
+                        final_row_values.append(extracted_map.get(idx, "NaN"))
 
-        print(f"Success! Clean file saved to: {output_full_path}")
+                # --- Write Row ---
+                if use_pretty_align:
+                    formatted_data = [f"{val:^{col_width}}" for val in final_row_values]
+                    line_to_write = "".join(formatted_data)
+                else:
+                    line_to_write = separator.join([str(x) for x in final_row_values])
+                
+                outfile.write(line_to_write + "\n")
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         sys.exit(1)
+        
+    print(f"Success! Clean file saved to: {output_full_path}")
 
 def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='\t'):
     """Exports data to a file with columns (vectors) and single-row constants."""
