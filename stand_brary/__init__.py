@@ -20,6 +20,8 @@ from .core import (
     calculate_centered_derivative,
     find_abs_min_or_max,
     load_text_file_by_column,
+    load_scalar_map,
+    load_vector_map,
     calculate_linear_interpolation,
     get_temp_key,
     
@@ -76,6 +78,8 @@ __all__ = [
     "load_text_file_by_column",
     "calculate_linear_interpolation",
     "calculate_cox_prime",
+    "load_scalar_map",
+    "load_vector_map",
     "calculate_gamma",
     "calculate_fermi_potential",
     "calculate_pinch_off_voltage",

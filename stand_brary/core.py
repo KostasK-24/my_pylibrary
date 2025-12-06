@@ -18,6 +18,8 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
    - check_file_access(filepath, mode)
    - parse_simulation_file(input_path, output_dir, output_name, col_mapping)
    - export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter)
+   - load_scalar_map(directory, target_column)
+   - load_vector_map(directory, target_column)
    - load_text_file_by_column(filepath)
    - get_temp_key(val)
 
@@ -67,6 +69,7 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
 import os
 import math
 import sys
+import glob  # Added for directory scanning
 
 # New imports for plotting
 try:
@@ -296,6 +299,140 @@ def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='
                 
     except IOError as e:
         print(f"Error writing file {filepath}: {e}")
+
+def load_scalar_map(directory, target_column):
+    """
+    Scans TSV files in the directory and extracts a single CONSTANT value 
+    (from the first data row) for a specific column.
+    
+    Args:
+        directory (str): Path to the folder containing TSV files.
+        target_column (str): The column header name (or substring) to find (e.g., "Ispec", "Vth").
+        
+    Returns:
+        dict: { temperature_int: scalar_value_float }
+    """
+    scalar_map = {}
+    
+    if not os.path.exists(directory):
+        print(f"Warning: Directory not found: {directory}")
+        return scalar_map
+
+    files = glob.glob(os.path.join(directory, "*.tsv"))
+    
+    for filepath in files:
+        try:
+            with open(filepath, 'r') as f:
+                lines = f.readlines()
+                # Need header + at least one data row
+                if len(lines) < 2: continue
+                
+                # Parse Header (Line 1) and Data (Line 2)
+                headers = lines[0].strip().split('\t')
+                data = lines[1].strip().split('\t')
+                
+                # Generic Column Search
+                target_idx = -1
+                for i, h in enumerate(headers):
+                    if target_column.lower() in h.lower():
+                        target_idx = i
+                        break
+                
+                # If column found and data exists at that index
+                if target_idx != -1 and target_idx < len(data):
+                    try:
+                        val = float(data[target_idx])
+                        
+                        # Extract Temperature from filename
+                        fname = os.path.basename(filepath)
+                        if "C.tsv" in fname:
+                            parts = fname.split('_')
+                            for p in parts:
+                                if "C.tsv" in p:
+                                    temp_str = p.replace("C.tsv", "")
+                                    scalar_map[int(temp_str)] = val
+                                    break
+                    except ValueError:
+                        pass
+        except Exception: 
+            continue
+            
+    return scalar_map
+
+def load_vector_map(directory, target_column):
+    """
+    Scans TSV files and extracts an ENTIRE COLUMN vector for each temperature.
+    
+    Args:
+        directory (str): Path to the folder containing TSV files.
+        target_column (str): The column header name (or substring) to find (e.g., "n", "gm").
+        
+    Returns:
+        dict: { temperature_int: [list_of_values] }
+    """
+    vector_map = {}
+    
+    if not os.path.exists(directory):
+        # print(f"Warning: Directory not found: {directory}")
+        return vector_map
+
+    files = glob.glob(os.path.join(directory, "*.tsv"))
+    
+    for filepath in files:
+        try:
+            vector_data = []
+            temp_key = None
+            
+            # 1. Extract Temp Key from filename first
+            fname = os.path.basename(filepath)
+            if "C.tsv" in fname:
+                try:
+                    parts = fname.split('_')
+                    for p in parts:
+                        if "C.tsv" in p:
+                            temp_key = int(p.replace("C.tsv", ""))
+                            break
+                except: continue
+
+            if temp_key is None: continue
+
+            # 2. Open file and read column
+            with open(filepath, 'r') as f:
+                header_line = f.readline()
+                headers = header_line.strip().split('\t')
+                
+                # Generic Column Search
+                target_idx = -1
+                for i, h in enumerate(headers):
+                    if target_column.lower() in h.lower():
+                        target_idx = i
+                        break
+                
+                # If not found, skip this file
+                if target_idx == -1: continue
+
+                # Read remaining data rows
+                for line in f:
+                    parts = line.strip().split('\t')
+                    if len(parts) > target_idx:
+                        try:
+                            val_str = parts[target_idx].strip()
+                            if val_str and val_str != "---" and val_str != "NaN":
+                                vector_data.append(float(val_str))
+                            else:
+                                # Default for missing vector data
+                                if "n" == target_column.lower():
+                                    vector_data.append(1.0)
+                                else:
+                                    vector_data.append(0.0)
+                        except ValueError:
+                            vector_data.append(0.0)
+            
+            vector_map[temp_key] = vector_data
+
+        except Exception: continue
+            
+    return vector_map
 
 def calculate_centered_derivative(y_data, x_data):
     """
