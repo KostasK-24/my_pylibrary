@@ -14,7 +14,7 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
    - NI_300K: 1.19e10 cm^-3 [Source: 13]
 
 2. UTILITY & FILE HANDLING:
-   - parse_simulation_file: Robust parsing with auto-shifting for sparse Ngspice data.
+   - parse_simulation_file: Robust "Sandwich" parsing for sparse Ngspice data.
    - export_vectors_and_scalars: Generic TSV export.
    - load_scalar_map / load_vector_map: Generic loading.
    - check_file_access
@@ -69,12 +69,13 @@ def check_file_access(filepath, mode='r'):
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
     """
-    Parses a simulation file with "Smart Shift" logic for Ngspice data.
+    Parses a simulation file with "Sandwich" logic for sparse Ngspice data.
     
-    Features:
-    1. Auto-detects if the 'Temperature' column is dropped in subsequent lines.
-    2. Shifts indices for columns appearing AFTER the missing column.
-    3. Forward-fills the missing value from the cache.
+    The Problem: Ngspice drops 'Outer Loop' variables (middle columns) in subsequent lines.
+    The Fix: 
+      1. Determines 'Full Width' from the first valid data line.
+      2. If a line is shorter, it fills from the Left (Start) and Right (End).
+      3. The 'Gap' in the middle is filled with cached values from the previous full line.
     """
     output_full_path = os.path.join(output_directory, output_filename)
 
@@ -94,22 +95,9 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
     use_pretty_align = not (is_tsv or is_csv)
     col_width = 25
 
-    # Identify indices we want to KEEP based on user mapping
     indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
     new_header_list = [col for col in column_mapping if col != "-"]
     
-    # --- Detect 'Shifting' Column (usually Temperature) ---
-    # We look for the index of 'temp' in the FULL mapping
-    temp_col_idx = -1
-    for i, col in enumerate(column_mapping):
-        if "temp" in col.lower():
-            temp_col_idx = i
-            break
-
-    # Determine expected full width (assuming raw file matches mapping length)
-    # Note: Ngspice raw often matches the mapping length exactly in the header block
-    expected_width = len(column_mapping)
-
     # --- Header String Construction ---
     if use_pretty_align:
         formatted_header_list = [f"{col:^{col_width}}" for col in new_header_list]
@@ -117,8 +105,9 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
     else:
         new_header_str = separator.join(new_header_list)
 
-    # Cache for Forward Fill
-    last_seen_values = {} 
+    # --- State Tracking ---
+    full_width = 0
+    cache = [] # Stores the last "Full" line
 
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
@@ -139,53 +128,75 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
                 if is_header:
                     continue # Skip raw headers
                 
-                # --- SMART DATA PARSING ---
-                selected_data = []
+                # --- AUTO-DETECT WIDTH ---
                 current_width = len(parts)
                 
-                # Logic: Did a column disappear?
-                # Usually happens if current_width is exactly 1 less than expected
-                is_short_line = (temp_col_idx != -1) and (current_width == expected_width - 1)
+                # Assume the FIRST data line we see defines the "Full Width"
+                if full_width == 0:
+                    full_width = current_width
+                    cache = parts # Initialize cache
                 
+                # Update cache if we see a full line again
+                if current_width == full_width:
+                    cache = parts
+                
+                # --- CONSTRUCT FULL ROW (Sandwich Logic) ---
+                # We want to reconstruct a list 'full_row' that has length 'full_width'
+                # using the data we have + cache for holes.
+                
+                if current_width == full_width:
+                    full_row = parts
+                else:
+                    # Sparse Line detected.
+                    # We assume data is missing from the "Middle-ish".
+                    # Ngspice usually keeps the Sweep (Left) and Results (Right).
+                    # Loop vars (Temp, Length) in the middle disappear.
+                    
+                    missing_count = full_width - current_width
+                    
+                    # Heuristic: The last N columns are usually the results (Ids, Ig, etc)
+                    # The first M columns are usually the sweep (Vg, Vs)
+                    # The missing stuff is usually immediately after the sweep variables.
+                    
+                    # However, strictly matching purely by "Right Alignment" is safest for Ngspice.
+                    # Ngspice logic: [Sweep_Vars] [Loop_Vars] [Result_Vars]
+                    # Next line:     [Sweep_Vars]             [Result_Vars]
+                    
+                    # We know the right-most columns align.
+                    # So we take the last 'current_width - 1' columns from 'parts' and align them to the right.
+                    # Wait, Inner Sweep (col 0) is always present.
+                    
+                    full_row = [None] * full_width
+                    
+                    # 1. Fill from Left (Sweep Variable - usually just index 0)
+                    # We assume at least the main sweep variable is present at index 0.
+                    full_row[0] = parts[0]
+                    
+                    # 2. Fill from Right (Results)
+                    # We match the end of 'parts' to the end of 'full_row'
+                    # We calculate how many "Result" columns we have.
+                    # Usually, everything after index 0 in the sparse line are results.
+                    results_count = current_width - 1
+                    
+                    if results_count > 0:
+                        # Copy the last N items from parts to the last N items of full_row
+                        full_row[-results_count:] = parts[-results_count:]
+                    
+                    # 3. Fill the Holes from Cache
+                    for i in range(full_width):
+                        if full_row[i] is None:
+                            full_row[i] = cache[i]
+
+                # --- EXTRACT USER COLUMNS ---
+                selected_data = []
                 try:
-                    for target_idx in indices_to_keep:
-                        val = None
-                        
-                        # Case 1: The column we want is BEFORE the shifting point
-                        if target_idx < temp_col_idx or temp_col_idx == -1:
-                            if target_idx < len(parts):
-                                val = parts[target_idx]
-                                last_seen_values[target_idx] = val
-                        
-                        # Case 2: The column IS the shifting point (Temperature)
-                        elif target_idx == temp_col_idx:
-                            if not is_short_line:
-                                # Normal line, read fresh value
-                                if target_idx < len(parts):
-                                    val = parts[target_idx]
-                                    last_seen_values[target_idx] = val
-                            else:
-                                # Short line, retrieve from cache
-                                val = last_seen_values.get(target_idx, "NaN")
-
-                        # Case 3: The column is AFTER the shifting point (e.g., Isource)
-                        elif target_idx > temp_col_idx:
-                            if not is_short_line:
-                                # Normal line: Index matches target_idx
-                                read_idx = target_idx
-                            else:
-                                # Short line: Shift index by -1 to account for missing Temp
-                                read_idx = target_idx - 1
-                            
-                            if read_idx < len(parts):
-                                val = parts[read_idx]
-                                last_seen_values[target_idx] = val # Store using original ID for consistency
-
-                        if val is None:
-                            # Fallback if logic failed or index really out of bounds
-                            val = last_seen_values.get(target_idx, "NaN")
-
-                        selected_data.append(val)
+                    for i in indices_to_keep:
+                        if i < len(full_row):
+                            val = full_row[i]
+                            selected_data.append(val)
+                        else:
+                            # If mapping index is outside even the full width, user error
+                            selected_data.append("NaN")
                     
                     # Write Row
                     if use_pretty_align:
