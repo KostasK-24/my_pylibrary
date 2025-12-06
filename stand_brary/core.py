@@ -17,6 +17,7 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
    - calculate_thermal_voltage(temperature_celsius)
    - check_file_access(filepath, mode)
    - parse_simulation_file(input_path, output_dir, output_name, col_mapping)
+   - export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter)
    - load_text_file_by_column(filepath)
    - get_temp_key(val)
 
@@ -133,11 +134,9 @@ def check_file_access(filepath, mode='r'):
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
     """
-    Parses a simulation file, filters columns, and saves to a specific directory.
-    Auto-detects format:
-      - .tsv: Tab separated, no pretty alignment.
-      - .csv: Comma separated, no pretty alignment.
-      - .txt: Space separated, centered alignment (25 chars).
+    Parses a simulation file with "Forward Fill" logic for sparse data.
+    If a column is missing in the current line (e.g., Temperature), 
+    it reuses the value from the last valid row.
     
     Args:
         input_file_path (str): Absolute path to source file.
@@ -145,7 +144,6 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
         output_filename (str): Name of the file to save (e.g., 'results.tsv').
         column_mapping (list): List of columns to keep (use "-" to skip).
     """
-    # Combine directory and filename
     output_full_path = os.path.join(output_directory, output_filename)
 
     # Use existing library function to check access
@@ -186,16 +184,20 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
     else:
         new_header_str = separator.join(new_header_list)
 
-    expected_raw_header = None 
+    # --- Cache for Forward Fill ---
+    last_seen_values = {} 
 
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
+            
+            # Write the new header at the very top of the file
+            outfile.write(new_header_str + "\n")
             
             for line_num, line in enumerate(infile):
                 parts = line.split()
                 if not parts: continue
 
-                # Check if this line is a Header or Data
+                # Detect Header vs Data
                 is_header = False
                 try:
                     float(parts[0])
@@ -203,21 +205,31 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
                     is_header = True
 
                 if is_header:
-                    current_raw_header = " ".join(parts)
-
-                    if expected_raw_header is None:
-                        expected_raw_header = current_raw_header
-                    else:
-                        if current_raw_header != expected_raw_header:
-                            print(f"\nError at line {line_num + 1}: Header format changed.")
-                            sys.exit(1)
-                    
-                    outfile.write(new_header_str + "\n")
+                    # Skip Headers (we only wrote the first custom one)
+                    continue
                 
                 else:
+                    # It is Data
+                    selected_data = []
                     try:
-                        selected_data = [parts[i] for i in indices_to_keep]
+                        for i in indices_to_keep:
+                            # 1. Check if the column exists in this line
+                            if i < len(parts):
+                                val = parts[i]
+                                # Store it in cache
+                                last_seen_values[i] = val
+                            else:
+                                # 2. If missing, retrieve from cache (Forward Fill)
+                                if i in last_seen_values:
+                                    val = last_seen_values[i]
+                                else:
+                                    # If not in cache, we have a real problem
+                                    print(f"Error at line {line_num + 1}: Column {i} missing and no previous value found.")
+                                    sys.exit(1)
+                            
+                            selected_data.append(val)
                         
+                        # Write the row
                         if use_pretty_align:
                             formatted_data = [f"{val:^{col_width}}" for val in selected_data]
                             line_to_write = "".join(formatted_data)
@@ -226,15 +238,64 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
                         
                         outfile.write(line_to_write + "\n")
 
-                    except IndexError:
-                        print(f"Error at line {line_num + 1}: Missing columns.")
+                    except Exception as e:
+                        print(f"Error processing line {line_num + 1}: {e}")
                         sys.exit(1)
 
-        print(f"Success! Results saved to: {output_full_path}")
+        print(f"Success! Clean file saved to: {output_full_path}")
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         sys.exit(1)
+
+def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='\t'):
+    """
+    Exports data to a file with columns (vectors) and single-row constants (scalars).
+    
+    Args:
+        filepath (str): Full path to save the file.
+        vectors_dict (dict): Dictionary of lists {'Header': [values]}. 
+                             All lists must be the same length.
+        scalars_dict (dict): Dictionary of constants {'Header': value}. 
+                             These are only written in the first row.
+        delimiter (str): Separator (default is tab for TSV).
+    """
+    vector_keys = list(vectors_dict.keys())
+    scalar_keys = list(scalars_dict.keys())
+    all_headers = vector_keys + scalar_keys
+    
+    if not vector_keys:
+        print("Export Error: No vector data provided.")
+        return
+    n_rows = len(vectors_dict[vector_keys[0]])
+
+    try:
+        with open(filepath, 'w', newline='') as f:
+            # Write Header
+            f.write(delimiter.join(all_headers) + "\n")
+            
+            for i in range(n_rows):
+                row_items = []
+                # Vectors
+                for key in vector_keys:
+                    val = vectors_dict[key][i]
+                    if val is None: row_items.append("")
+                    elif isinstance(val, (int, float)): row_items.append(f"{val:.8e}")
+                    else: row_items.append(str(val))
+                
+                # Scalars (First row only)
+                if i == 0:
+                    for key in scalar_keys:
+                        val = scalars_dict[key]
+                        if isinstance(val, (int, float)): row_items.append(f"{val:.8e}")
+                        else: row_items.append(str(val))
+                else:
+                    row_items.extend([""] * len(scalar_keys))
+                
+                f.write(delimiter.join(row_items) + "\n")
+                
+    except IOError as e:
+        print(f"Error writing file {filepath}: {e}")
 
 def calculate_centered_derivative(y_data, x_data):
     """
