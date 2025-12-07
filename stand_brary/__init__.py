@@ -17,13 +17,15 @@ from .core import (
     check_file_access,
     parse_simulation_file,
     export_vectors_and_scalars,
+    load_scalar_map,
+    load_vector_map,
     calculate_centered_derivative,
     find_abs_min_or_max,
     load_text_file_by_column,
-    load_scalar_map,
-    load_vector_map,
     calculate_linear_interpolation,
     get_temp_key,
+    get_temp_from_filename, # <--- NEW HELPER
+    find_col_index,         # <--- NEW HELPER
     
     # Process & Physics Parameters
     calculate_cox_prime,
@@ -56,10 +58,11 @@ from .core import (
     calculate_current_mismatch,
     
     # Plotting
-    plot_four_styles
+    plot_four_styles,
+    plot_family_of_curves # <--- NEW PLOTTING FUNCTION
 )
 
-__version__ = "1.5.0"
+__version__ = "1.7.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
@@ -73,13 +76,16 @@ __all__ = [
     "check_file_access",
     "parse_simulation_file",
     "export_vectors_and_scalars",
+    "load_scalar_map",
+    "load_vector_map",
     "calculate_centered_derivative",
     "find_abs_min_or_max",
     "load_text_file_by_column",
     "calculate_linear_interpolation",
+    "get_temp_key",
+    "get_temp_from_filename",
+    "find_col_index",
     "calculate_cox_prime",
-    "load_scalar_map",
-    "load_vector_map",
     "calculate_gamma",
     "calculate_fermi_potential",
     "calculate_pinch_off_voltage",
@@ -101,6 +107,6 @@ __all__ = [
     "calculate_flicker_noise",
     "calculate_thermal_noise",
     "calculate_current_mismatch",
-    "get_temp_key",
-    "plot_four_styles"
+    "plot_four_styles",
+    "plot_family_of_curves"
 ]

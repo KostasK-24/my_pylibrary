@@ -7,21 +7,26 @@ numerical analysis, file handling, and plotting.
 CONTEXT OF EQUATIONS & FUNCTIONS:
 
 1. FUNDAMENTAL CONSTANTS:
-   - K_BOLTZMANN (k): 1.38e-23 J/K [Source: 15]
-   - Q_ELEMENTARY (q): 1.602e-19 C [Source: 15]
-   - EPSILON_OX: 3.45e-11 F/m [Source: 9]
-   - EPSILON_SI: 1.04e-10 F/m [Source: 9]
-   - NI_300K: 1.19e10 cm^-3 [Source: 13]
+   - K_BOLTZMANN (k): 1.38e-23 J/K
+   - Q_ELEMENTARY (q): 1.602e-19 C
+   - EPSILON_OX: 3.45e-11 F/m
+   - EPSILON_SI: 1.04e-10 F/m
+   - NI_300K: 1.19e10 cm^-3
 
 2. UTILITY & FILE HANDLING:
-   - parse_simulation_file: Robust "Split-Merge" parsing for sparse Ngspice data.
+   - parse_simulation_file: Robust "Split-Merge" parsing for sparse data.
    - export_vectors_and_scalars: Generic TSV export.
    - load_scalar_map / load_vector_map: Generic loading.
    - check_file_access
-   - get_temp_key
+   - get_temp_key / get_temp_from_filename
+   - find_col_index
 
 3. NUMERICAL & PHYSICS:
    - Derivatives, Interpolation, Vth, Cox, Ispec, Mobility, etc.
+
+4. PLOTTING:
+   - plot_four_styles: For 1D scalar data.
+   - plot_family_of_curves: For 2D vector data (Family of Curves).
 """
 
 import os
@@ -31,6 +36,7 @@ import glob
 
 try:
     import matplotlib.pyplot as plt
+    import matplotlib.cm as cm
     from matplotlib.ticker import ScalarFormatter
     import numpy as np
 except ImportError:
@@ -67,170 +73,130 @@ def check_file_access(filepath, mode='r'):
             return False
     return True
 
+def get_temp_key(val):
+    """Returns rounded integer temperature from a float."""
+    return int(round(val))
+
+def get_temp_from_filename(filename):
+    """Extracts temperature integer from filename like ..._T_300K_+027C.tsv"""
+    try:
+        parts = filename.split('_')
+        for p in parts:
+            if "C.tsv" in p:
+                return float(p.replace("C.tsv", ""))
+    except: pass
+    return None
+
+def find_col_index(headers, keywords, exclude=None):
+    """
+    Finds the index of a column that matches any of the keywords.
+    Args:
+        headers (list): List of strings (column names).
+        keywords (list): List of strings to search for.
+        exclude (list): List of strings to exclude (e.g. "n0" when looking for "n").
+    """
+    for i, h in enumerate(headers):
+        h_low = h.lower()
+        if any(k in h_low for k in keywords):
+            if exclude and any(ex in h_low for ex in exclude): continue
+            return i
+    return -1
+
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
     """
     Parses a simulation file with "Split-Merge" logic for sparse Ngspice data.
-    
-    Logic:
-    1. Identifies the 'Temperature' column as the Pivot.
-    2. Separates user-requested columns into LEFT (Sweeps) and RIGHT (Results).
-    3. On sparse lines, reads LEFT from start of line, RIGHT from end of line, 
-       and fills the Pivot from cache.
     """
     output_full_path = os.path.join(output_directory, output_filename)
 
-    if not check_file_access(input_file_path, 'r'):
-        sys.exit(1)
+    if not check_file_access(input_file_path, 'r'): sys.exit(1)
     if not os.path.exists(output_directory):
         print(f"Error: Output directory does not exist: {output_directory}")
         sys.exit(1)
 
     print(f"Processing: {input_file_path}")
     
-    # --- Format Setup ---
     is_tsv = output_filename.lower().endswith('.tsv')
     is_csv = output_filename.lower().endswith('.csv')
-    
     separator = "\t" if is_tsv else "," if is_csv else ""
     use_pretty_align = not (is_tsv or is_csv)
     col_width = 25
 
-    # 1. Identify indices to keep
     indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
     new_header_list = [col for col in column_mapping if col != "-"]
     
-    # 2. Identify the Pivot (Loop Variable)
     temp_raw_idx = -1
     for i, col in enumerate(column_mapping):
         if "temp" in col.lower():
             temp_raw_idx = i
             break
             
-    # 3. Categorize indices relative to Pivot
     left_indices = []
     right_indices = []
     has_pivot_in_output = False
     
     for idx in indices_to_keep:
         if temp_raw_idx != -1:
-            if idx < temp_raw_idx:
-                left_indices.append(idx)
-            elif idx > temp_raw_idx:
-                right_indices.append(idx)
-            else:
-                has_pivot_in_output = True
-        else:
-            # If no temp column defined, treat everything as Left
-            left_indices.append(idx)
+            if idx < temp_raw_idx: left_indices.append(idx)
+            elif idx > temp_raw_idx: right_indices.append(idx)
+            else: has_pivot_in_output = True
+        else: left_indices.append(idx)
 
-    # --- Header String Construction ---
     if use_pretty_align:
         formatted_header_list = [f"{col:^{col_width}}" for col in new_header_list]
         new_header_str = "".join(formatted_header_list)
     else:
         new_header_str = separator.join(new_header_list)
 
-    # Cache for Forward Fill
     cached_values = {}
     full_width_detected = False
-    expected_full_width = len(column_mapping) # Rough guess, refined by first line
+    expected_full_width = len(column_mapping)
 
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
-            
             outfile.write(new_header_str + "\n")
-            
             for line_num, line in enumerate(infile):
                 parts = line.strip().split()
                 if not parts: continue
-
-                # Skip Header lines
-                is_header = False
-                try:
-                    float(parts[0])
-                except ValueError:
-                    is_header = True
-                if is_header: continue
+                try: float(parts[0])
+                except ValueError: continue # Skip headers
                 
-                # --- AUTO-DETECT Full Width ---
                 if not full_width_detected:
                     if len(parts) >= expected_full_width:
-                        # This looks like a full line
                         full_width_detected = True
-                        # Update cache with initial full line
-                        for i, val in enumerate(parts):
-                            cached_values[i] = val
+                        for i, val in enumerate(parts): cached_values[i] = val
                 
-                # --- Logic Split ---
                 current_width = len(parts)
                 final_row_values = []
-                
-                # A) Full Line: Standard Read
-                # We assume a line is 'Full' if it's roughly the size of the mapping
-                # or significantly larger than the Left+Right count.
                 is_full_line = (current_width >= expected_full_width) or (current_width > len(left_indices) + len(right_indices) + 1)
 
                 if is_full_line:
-                    # Update Cache
-                    for i, val in enumerate(parts):
-                        cached_values[i] = val
-                    
-                    # Extract directly by index
+                    for i, val in enumerate(parts): cached_values[i] = val
                     for idx in indices_to_keep:
-                        if idx < len(parts):
-                            final_row_values.append(parts[idx])
-                        else:
-                            final_row_values.append("NaN")
-                
-                # B) Sparse Line: Split-Merge Read
+                        if idx < len(parts): final_row_values.append(parts[idx])
+                        else: final_row_values.append("NaN")
                 else:
-                    # 1. Read Left (Sweep) from Start
-                    # We blindly take the first N columns where N is len(left_indices)
-                    # This assumes the first N columns of the sparse line correspond exactly to the requested Left columns.
-                    # (In Ngspice 'v-sweep' etc are always first).
-                    
-                    # Optimization: Map parts[0] to left_indices[0], parts[1] to left_indices[1]...
-                    # This assumes the indices_to_keep are contiguous at the start? 
-                    # Usually yes: [0, 1].
-                    
-                    # Store what we extracted to reconstruct order later
                     extracted_map = {}
-                    
-                    # Read Left
                     for i, map_idx in enumerate(left_indices):
-                        if i < len(parts):
-                            extracted_map[map_idx] = parts[i]
-                        else:
-                            extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
+                        if i < len(parts): extracted_map[map_idx] = parts[i]
+                        else: extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
                             
-                    # Read Right
-                    # We take from the END of parts.
-                    # right_indices[0] corresponds to parts[-len(right)]
                     num_right = len(right_indices)
                     for i, map_idx in enumerate(right_indices):
-                        # Calculate negative index: -num_right + i
-                        # Ex: 2 right cols. i=0 -> -2. i=1 -> -1.
                         part_idx = -num_right + i
-                        try:
-                            extracted_map[map_idx] = parts[part_idx]
-                        except IndexError:
-                            extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
+                        try: extracted_map[map_idx] = parts[part_idx]
+                        except IndexError: extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
 
-                    # Read Pivot (Temp) from Cache
                     if has_pivot_in_output:
                         extracted_map[temp_raw_idx] = cached_values.get(temp_raw_idx, "NaN")
                     
-                    # Construct Final Row in Order
                     for idx in indices_to_keep:
                         final_row_values.append(extracted_map.get(idx, "NaN"))
 
-                # --- Write Row ---
                 if use_pretty_align:
                     formatted_data = [f"{val:^{col_width}}" for val in final_row_values]
                     line_to_write = "".join(formatted_data)
                 else:
                     line_to_write = separator.join([str(x) for x in final_row_values])
-                
                 outfile.write(line_to_write + "\n")
 
     except Exception as e:
@@ -281,21 +247,16 @@ def load_scalar_map(directory, target_column):
                 if len(lines) < 2: continue
                 headers = lines[0].strip().split('\t')
                 data = lines[1].strip().split('\t')
-                target_idx = -1
-                for i, h in enumerate(headers):
-                    if target_column.lower() in h.lower():
-                        target_idx = i
-                        break
+                
+                # Use new helper
+                target_idx = find_col_index(headers, [target_column.lower()])
+                
                 if target_idx != -1 and target_idx < len(data):
                     try:
                         val = float(data[target_idx])
-                        fname = os.path.basename(filepath)
-                        if "C.tsv" in fname:
-                            parts = fname.split('_')
-                            for p in parts:
-                                if "C.tsv" in p:
-                                    scalar_map[int(p.replace("C.tsv", ""))] = val
-                                    break
+                        # Use new helper
+                        t = get_temp_from_filename(os.path.basename(filepath))
+                        if t is not None: scalar_map[int(t)] = val
                     except: pass
         except: continue
     return scalar_map
@@ -307,27 +268,18 @@ def load_vector_map(directory, target_column):
     files = glob.glob(os.path.join(directory, "*.tsv"))
     for filepath in files:
         try:
+            # Use new helper
+            t = get_temp_from_filename(os.path.basename(filepath))
+            if t is None: continue
+            
             vector_data = []
-            temp_key = None
-            fname = os.path.basename(filepath)
-            if "C.tsv" in fname:
-                try:
-                    parts = fname.split('_')
-                    for p in parts:
-                        if "C.tsv" in p:
-                            temp_key = int(p.replace("C.tsv", ""))
-                            break
-                except: continue
-            if temp_key is None: continue
-
             with open(filepath, 'r') as f:
                 header = f.readline().split('\t')
-                target_idx = -1
-                for i, h in enumerate(header):
-                    h_clean = h.strip().lower()
-                    if (target_column.lower() in h_clean) and "n0" not in h_clean:
-                        target_idx = i
-                        break
+                
+                # Use new helper (Exclude 'n0' if looking for 'n')
+                exclude_list = ["n0"] if "n" == target_column.lower() else None
+                target_idx = find_col_index(header, [target_column.lower()], exclude=exclude_list)
+                
                 if target_idx == -1 and len(header)>=4: target_idx = 3 # Fallback
 
                 for line in f:
@@ -337,8 +289,8 @@ def load_vector_map(directory, target_column):
                             val = float(parts[target_idx].strip())
                             vector_data.append(val)
                         except:
-                            vector_data.append(1.0 if "n" in target_column.lower() else 0.0)
-            vector_map[temp_key] = vector_data
+                            vector_data.append(np.nan) # Handle missing/bad data
+            vector_map[int(t)] = vector_data
         except: continue
     return vector_map
 
@@ -360,12 +312,7 @@ def calculate_linear_interpolation(x0, y0, x1, y1, ty):
     if y1==y0: return None
     return x0 + (ty-y0)*(x1-x0)/(y1-y0)
 
-def get_temp_key(val):
-    return int(round(val))
-
-def load_text_file_by_column(filepath):
-    # (Simplified for brevity, full version in previous iteration if needed)
-    return {}
+def load_text_file_by_column(filepath): return {}
 
 # --- Physics Helpers ---
 def calculate_cox_prime(t_ox): return EPSILON_OX/t_ox if t_ox>0 else 0.0
@@ -391,13 +338,82 @@ def calculate_flicker_noise(kf, cox, w, l, f, af, gm): return (gm**2*kf)/(cox*w*
 def calculate_thermal_noise(k, t, gam, gm): return 4*k*t*gam*gm
 def calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l): return math.sqrt((a_beta/math.sqrt(w*l))**2 + (gm/id*sig_vt)**2) if (w!=0 and l!=0 and id!=0) else 0.0
 
-def plot_four_styles(x, y, xl, yl, title):
+# --- Plotting Functions ---
+
+def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_base="Plot"):
+    """Generates a single window with 4 subplots showing scalar data."""
     try:
-        fig, ((ax1,ax2),(ax3,ax4)) = plt.subplots(2,2,figsize=(10,8))
-        fig.suptitle(f"{title} - 4 Views")
-        ax1.plot(x,y,'o-'); ax1.set_title("Linear")
-        ax2.plot(x,y,'o-',color='orange'); ax2.set_title("Scientific"); ax2.yaxis.set_major_formatter(ScalarFormatter())
-        ax3.semilogy(x,[abs(v) for v in y],'o-',color='green'); ax3.set_title("Log")
-        ax4.plot(x,y,'k.-'); ax4.set_title("IEEE Style"); ax4.grid(True, linestyle='--')
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 8))
+        fig.suptitle(f"{title_base} - 4 Views", fontsize=14)
+
+        ax1.plot(x_data, y_data, 'o-', linewidth=2, label="Data")
+        ax1.set_xlabel(x_label); ax1.set_ylabel(y_label); ax1.set_title("1. Linear"); ax1.grid(True)
+
+        ax2.plot(x_data, y_data, 'o-', linewidth=2, label="Data", color='orange')
+        ax2.set_xlabel(x_label); ax2.set_ylabel(y_label); ax2.set_title("2. Scientific"); ax2.grid(True)
+        formatter = ScalarFormatter(); formatter.set_powerlimits((0, 0)); ax2.yaxis.set_major_formatter(formatter)
+
+        if hasattr(y_data, 'tolist'): y_abs = [abs(y) for y in y_data]
+        else: y_abs = [abs(y) for y in y_data]
+        ax3.semilogy(x_data, y_abs, 'o-', linewidth=2, label="|Data|", color='green')
+        ax3.set_xlabel(x_label); ax3.set_ylabel(f"|{y_label}|"); ax3.set_title("3. Log Scale"); ax3.grid(True, which="both")
+
+        ax4.plot(x_data, y_data, 'o-', linewidth=1.5, color='black', markersize=4, label="Data")
+        font_ieee = {'family': 'serif', 'size': 10}
+        ax4.set_xlabel(x_label, fontdict=font_ieee); ax4.set_ylabel(y_label, fontdict=font_ieee); ax4.set_title("4. IEEE Style", fontdict=font_ieee)
+        ax4.grid(True, linewidth=0.5, linestyle='--'); ax4.yaxis.set_major_formatter(formatter)
+
         plt.tight_layout()
-    except: pass
+    except Exception as e: print(f"Plot Error: {e}")
+
+def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base):
+    """Generates a 4-view plot for a FAMILY of curves (e.g. Id vs Vg for many Temps)."""
+    try:
+        sorted_keys = sorted(data_map.keys())
+        if not sorted_keys: return
+        
+        # Subsample if too many
+        plot_keys = sorted_keys[::max(1, len(sorted_keys)//20)]
+        
+        colors = cm.jet(np.linspace(0, 1, len(plot_keys)))
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle(f"{title_base}", fontsize=16)
+
+        def draw_lines(ax, mode='linear'):
+            for i, k in enumerate(plot_keys):
+                d = data_map[k]
+                if x_key not in d or y_key not in d: continue
+                x, y = d[x_key], d[y_key]
+                min_len = min(len(x), len(y))
+                if min_len == 0: continue
+                
+                # Filter NaNs
+                # Convert to numpy arrays if they aren't already to use bool indexing
+                xa = np.array(x[:min_len])
+                ya = np.array(y[:min_len])
+                mask = ~np.isnan(ya)
+                
+                if not np.any(mask): continue
+                
+                if mode == 'log':
+                    y_safe = np.abs(ya[mask])
+                    y_safe[y_safe==0] = 1e-15
+                    ax.semilogy(xa[mask], y_safe, linewidth=1.2, color=colors[i])
+                else:
+                    ax.plot(xa[mask], ya[mask], linewidth=1.2, color=colors[i])
+
+        ax1.set_title("1. Linear"); ax1.grid(True); draw_lines(ax1, 'linear'); ax1.set_xlabel(x_label); ax1.set_ylabel(y_label)
+        ax2.set_title("2. Scientific"); ax2.grid(True); draw_lines(ax2, 'linear'); ax2.set_xlabel(x_label); ax2.set_ylabel(y_label)
+        try: ax2.yaxis.set_major_formatter(ScalarFormatter(useMathText=True)); ax2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+        except: pass
+        ax3.set_title("3. Log Scale"); ax3.grid(True, which="both"); draw_lines(ax3, 'log'); ax3.set_xlabel(x_label); ax3.set_ylabel(f"|{y_label}|")
+        
+        font_ieee = {'family': 'serif', 'size': 10}
+        ax4.set_title("4. IEEE Style", fontdict=font_ieee); ax4.grid(True, linewidth=0.5, linestyle='--')
+        draw_lines(ax4, 'linear'); ax4.set_xlabel(x_label, fontdict=font_ieee); ax4.set_ylabel(y_label, fontdict=font_ieee)
+        
+        sm = plt.cm.ScalarMappable(cmap=cm.jet, norm=plt.Normalize(vmin=min(sorted_keys), vmax=max(sorted_keys)))
+        sm.set_array([])
+        fig.colorbar(sm, ax=[ax1, ax2, ax3, ax4], shrink=0.9).set_label('Temperature (C)')
+        
+    except Exception as e: print(f"Plotting Error: {e}")
