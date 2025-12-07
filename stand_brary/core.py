@@ -14,9 +14,10 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
    - NI_300K: 1.19e10 cm^-3
 
 2. UTILITY & FILE HANDLING:
-   - parse_simulation_file: Robust "Split-Merge" parsing for sparse data.
+   - parse_simulation_file: Robust "Split-Merge" parsing for sparse Ngspice data.
    - export_vectors_and_scalars: Generic TSV export.
-   - load_scalar_map / load_vector_map: Generic loading.
+   - load_scalar_map / load_vector_map: Low-level generic loading.
+   - load_scalar_data_from_dir / load_vector_data_from_dir: High-level plotting helpers.
    - check_file_access
    - get_temp_key / get_temp_from_filename
    - find_col_index
@@ -74,11 +75,9 @@ def check_file_access(filepath, mode='r'):
     return True
 
 def get_temp_key(val):
-    """Returns rounded integer temperature from a float."""
     return int(round(val))
 
 def get_temp_from_filename(filename):
-    """Extracts temperature integer from filename like ..._T_300K_+027C.tsv"""
     try:
         parts = filename.split('_')
         for p in parts:
@@ -88,13 +87,6 @@ def get_temp_from_filename(filename):
     return None
 
 def find_col_index(headers, keywords, exclude=None):
-    """
-    Finds the index of a column that matches any of the keywords.
-    Args:
-        headers (list): List of strings (column names).
-        keywords (list): List of strings to search for.
-        exclude (list): List of strings to exclude (e.g. "n0" when looking for "n").
-    """
     for i, h in enumerate(headers):
         h_low = h.lower()
         if any(k in h_low for k in keywords):
@@ -103,9 +95,7 @@ def find_col_index(headers, keywords, exclude=None):
     return -1
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
-    """
-    Parses a simulation file with "Split-Merge" logic for sparse Ngspice data.
-    """
+    """Parses a simulation file with "Split-Merge" logic for sparse Ngspice data."""
     output_full_path = os.path.join(output_directory, output_filename)
 
     if not check_file_access(input_file_path, 'r'): sys.exit(1)
@@ -114,7 +104,6 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
         sys.exit(1)
 
     print(f"Processing: {input_file_path}")
-    
     is_tsv = output_filename.lower().endswith('.tsv')
     is_csv = output_filename.lower().endswith('.csv')
     separator = "\t" if is_tsv else "," if is_csv else ""
@@ -133,7 +122,6 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
     left_indices = []
     right_indices = []
     has_pivot_in_output = False
-    
     for idx in indices_to_keep:
         if temp_raw_idx != -1:
             if idx < temp_raw_idx: left_indices.append(idx)
@@ -158,7 +146,7 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
                 parts = line.strip().split()
                 if not parts: continue
                 try: float(parts[0])
-                except ValueError: continue # Skip headers
+                except ValueError: continue 
                 
                 if not full_width_detected:
                     if len(parts) >= expected_full_width:
@@ -179,16 +167,13 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
                     for i, map_idx in enumerate(left_indices):
                         if i < len(parts): extracted_map[map_idx] = parts[i]
                         else: extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
-                            
                     num_right = len(right_indices)
                     for i, map_idx in enumerate(right_indices):
                         part_idx = -num_right + i
                         try: extracted_map[map_idx] = parts[part_idx]
                         except IndexError: extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
-
                     if has_pivot_in_output:
                         extracted_map[temp_raw_idx] = cached_values.get(temp_raw_idx, "NaN")
-                    
                     for idx in indices_to_keep:
                         final_row_values.append(extracted_map.get(idx, "NaN"))
 
@@ -198,11 +183,9 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
                 else:
                     line_to_write = separator.join([str(x) for x in final_row_values])
                 outfile.write(line_to_write + "\n")
-
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         sys.exit(1)
-        
     print(f"Success! Clean file saved to: {output_full_path}")
 
 def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='\t'):
@@ -210,10 +193,8 @@ def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='
     vector_keys = list(vectors_dict.keys())
     scalar_keys = list(scalars_dict.keys())
     all_headers = vector_keys + scalar_keys
-    
     if not vector_keys: return
     n_rows = len(vectors_dict[vector_keys[0]])
-
     try:
         with open(filepath, 'w', newline='') as f:
             f.write(delimiter.join(all_headers) + "\n")
@@ -224,7 +205,6 @@ def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='
                     if val is None: row_items.append("")
                     elif isinstance(val, (int, float)): row_items.append(f"{val:.8e}")
                     else: row_items.append(str(val))
-                
                 if i == 0:
                     for key in scalar_keys:
                         val = scalars_dict[key]
@@ -235,8 +215,10 @@ def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='
                 f.write(delimiter.join(row_items) + "\n")
     except IOError as e: print(f"Error: {e}")
 
+# --- Data Loading Functions ---
+
 def load_scalar_map(directory, target_column):
-    """Scans TSV files and extracts a single CONSTANT value."""
+    """Simple loader for single scalar value from a directory."""
     scalar_map = {}
     if not os.path.exists(directory): return scalar_map
     files = glob.glob(os.path.join(directory, "*.tsv"))
@@ -247,14 +229,10 @@ def load_scalar_map(directory, target_column):
                 if len(lines) < 2: continue
                 headers = lines[0].strip().split('\t')
                 data = lines[1].strip().split('\t')
-                
-                # Use new helper
                 target_idx = find_col_index(headers, [target_column.lower()])
-                
                 if target_idx != -1 and target_idx < len(data):
                     try:
                         val = float(data[target_idx])
-                        # Use new helper
                         t = get_temp_from_filename(os.path.basename(filepath))
                         if t is not None: scalar_map[int(t)] = val
                     except: pass
@@ -262,37 +240,121 @@ def load_scalar_map(directory, target_column):
     return scalar_map
 
 def load_vector_map(directory, target_column):
-    """Scans TSV files and extracts an ENTIRE COLUMN vector."""
+    """Simple loader for single vector column from a directory."""
     vector_map = {}
     if not os.path.exists(directory): return vector_map
     files = glob.glob(os.path.join(directory, "*.tsv"))
     for filepath in files:
         try:
-            # Use new helper
             t = get_temp_from_filename(os.path.basename(filepath))
             if t is None: continue
-            
             vector_data = []
             with open(filepath, 'r') as f:
                 header = f.readline().split('\t')
-                
-                # Use new helper (Exclude 'n0' if looking for 'n')
                 exclude_list = ["n0"] if "n" == target_column.lower() else None
                 target_idx = find_col_index(header, [target_column.lower()], exclude=exclude_list)
-                
-                if target_idx == -1 and len(header)>=4: target_idx = 3 # Fallback
-
+                if target_idx == -1 and len(header)>=4: target_idx = 3
                 for line in f:
                     parts = line.strip().split('\t')
                     if len(parts) > target_idx:
                         try:
                             val = float(parts[target_idx].strip())
                             vector_data.append(val)
-                        except:
-                            vector_data.append(np.nan) # Handle missing/bad data
+                        except: vector_data.append(np.nan)
             vector_map[int(t)] = vector_data
         except: continue
     return vector_map
+
+def load_scalar_data_from_dir(directory, columns_to_load):
+    """
+    High-level loader for multiple scalar columns (like Vth, n, Ispec) from a directory.
+    Args:
+        directory (str): Path to results folder.
+        columns_to_load (list): List of column keyword strings e.g. ['Vth', 'n', 'Mobility']
+    Returns:
+        dict: { 'Temp': np.array, 'Vth': np.array, ... }
+    """
+    data_map = {}
+    if not os.path.exists(directory): return {}
+
+    for fpath in glob.glob(os.path.join(directory, "*.tsv")):
+        t = get_temp_from_filename(os.path.basename(fpath))
+        if t is None: continue
+        try:
+            with open(fpath, 'r') as f:
+                lines = f.readlines()
+                if len(lines) < 2: continue
+                head = lines[0].strip().split('\t')
+                row = lines[1].strip().split('\t')
+                
+                if t not in data_map: data_map[t] = {}
+                
+                for col in columns_to_load:
+                    # Special logic for 'n' vs 'n0'
+                    exclude = ["n0", "n at"] if col.lower() == "n" and "vector" in col.lower() else None
+                    # If user asks for 'n' scalar, we usually mean 'n0' or 'n at Vth'
+                    if col.lower() == 'n': keywords = ["n0", "n at", "slope factor"]
+                    else: keywords = [col.lower()]
+                    
+                    idx = find_col_index(head, keywords, exclude=exclude)
+                    if idx != -1 and idx < len(row):
+                        data_map[t][col] = float(row[idx])
+        except: pass
+
+    sorted_keys = sorted(data_map.keys())
+    result = {'Temp': np.array(sorted_keys)}
+    
+    for col in columns_to_load:
+        arr = []
+        for k in sorted_keys:
+            arr.append(data_map[k].get(col, np.nan))
+        result[col] = np.array(arr)
+        
+    return result
+
+def load_vector_data_from_dir(directory, vector_keys):
+    """
+    High-level loader for multiple vector columns (like Vg, Id) from a directory.
+    Args:
+        directory (str): Path to results folder.
+        vector_keys (list): List of column keyword strings e.g. ['Vg', 'Id']
+    Returns:
+        dict: { temp_key: { 'Vg': np.array, 'Id': np.array } }
+    """
+    data_map = {}
+    if not os.path.exists(directory): return data_map
+
+    for fpath in glob.glob(os.path.join(directory, "*.tsv")):
+        t = get_temp_from_filename(os.path.basename(fpath))
+        if t is None: continue
+        
+        try:
+            with open(fpath, 'r') as f:
+                header = f.readline().strip().split('\t')
+                indices = {}
+                
+                # Find indices for all requested keys
+                for key in vector_keys:
+                    exclude = ["n0"] if key.lower() == "n" else None
+                    idx = find_col_index(header, [key.lower()], exclude=exclude)
+                    if idx != -1: indices[key] = idx
+                
+                if not indices: continue
+
+                temp_vecs = {k: [] for k in indices}
+                
+                for line in f:
+                    parts = line.strip().split('\t')
+                    for key, idx in indices.items():
+                        if len(parts) > idx:
+                            try: temp_vecs[key].append(float(parts[idx]))
+                            except: temp_vecs[key].append(np.nan)
+                
+                # Only add if we got data
+                if any(temp_vecs.values()):
+                    data_map[t] = {k: np.array(v) for k, v in temp_vecs.items()}
+        except: pass
+    return data_map
 
 # --- Math Helpers ---
 def calculate_centered_derivative(y, x):
@@ -372,9 +434,7 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base):
         sorted_keys = sorted(data_map.keys())
         if not sorted_keys: return
         
-        # Subsample if too many
         plot_keys = sorted_keys[::max(1, len(sorted_keys)//20)]
-        
         colors = cm.jet(np.linspace(0, 1, len(plot_keys)))
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
         fig.suptitle(f"{title_base}", fontsize=16)
@@ -387,12 +447,9 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base):
                 min_len = min(len(x), len(y))
                 if min_len == 0: continue
                 
-                # Filter NaNs
-                # Convert to numpy arrays if they aren't already to use bool indexing
                 xa = np.array(x[:min_len])
                 ya = np.array(y[:min_len])
                 mask = ~np.isnan(ya)
-                
                 if not np.any(mask): continue
                 
                 if mode == 'log':
