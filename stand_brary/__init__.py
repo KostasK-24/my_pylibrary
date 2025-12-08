@@ -18,8 +18,8 @@ from .core import (
     load_text_file_by_column,
     load_scalar_map,
     load_vector_map,
-    load_scalar_data_from_dir, # NEW
-    load_vector_data_from_dir, # NEW
+    load_scalar_data_from_dir,
+    load_vector_data_from_dir,
     calculate_linear_interpolation,
     get_temp_key,
     get_temp_from_filename,
@@ -49,7 +49,7 @@ from .core import (
     plot_family_of_curves
 )
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 

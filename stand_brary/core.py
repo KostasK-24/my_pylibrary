@@ -16,8 +16,7 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
 2. UTILITY & FILE HANDLING:
    - parse_simulation_file: Robust "Split-Merge" parsing for sparse Ngspice data.
    - export_vectors_and_scalars: Generic TSV export.
-   - load_scalar_map / load_vector_map: Low-level generic loading.
-   - load_scalar_data_from_dir / load_vector_data_from_dir: High-level plotting helpers.
+   - load_scalar_map / load_vector_map: Generic loading.
    - check_file_access
    - get_temp_key / get_temp_from_filename
    - find_col_index
@@ -28,6 +27,7 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
 4. PLOTTING:
    - plot_four_styles: For 1D scalar data.
    - plot_family_of_curves: For 2D vector data (Family of Curves).
+   - Smart Axis Formatting (3 decimals max).
 """
 
 import os
@@ -38,7 +38,7 @@ import glob
 try:
     import matplotlib.pyplot as plt
     import matplotlib.cm as cm
-    from matplotlib.ticker import ScalarFormatter
+    from matplotlib.ticker import ScalarFormatter, FuncFormatter
     import numpy as np
 except ImportError:
     pass
@@ -218,7 +218,6 @@ def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='
 # --- Data Loading Functions ---
 
 def load_scalar_map(directory, target_column):
-    """Simple loader for single scalar value from a directory."""
     scalar_map = {}
     if not os.path.exists(directory): return scalar_map
     files = glob.glob(os.path.join(directory, "*.tsv"))
@@ -240,7 +239,6 @@ def load_scalar_map(directory, target_column):
     return scalar_map
 
 def load_vector_map(directory, target_column):
-    """Simple loader for single vector column from a directory."""
     vector_map = {}
     if not os.path.exists(directory): return vector_map
     files = glob.glob(os.path.join(directory, "*.tsv"))
@@ -266,17 +264,8 @@ def load_vector_map(directory, target_column):
     return vector_map
 
 def load_scalar_data_from_dir(directory, columns_to_load):
-    """
-    High-level loader for multiple scalar columns (like Vth, n, Ispec) from a directory.
-    Args:
-        directory (str): Path to results folder.
-        columns_to_load (list): List of column keyword strings e.g. ['Vth', 'n', 'Mobility']
-    Returns:
-        dict: { 'Temp': np.array, 'Vth': np.array, ... }
-    """
     data_map = {}
     if not os.path.exists(directory): return {}
-
     for fpath in glob.glob(os.path.join(directory, "*.tsv")):
         t = get_temp_from_filename(os.path.basename(fpath))
         if t is None: continue
@@ -286,71 +275,45 @@ def load_scalar_data_from_dir(directory, columns_to_load):
                 if len(lines) < 2: continue
                 head = lines[0].strip().split('\t')
                 row = lines[1].strip().split('\t')
-                
                 if t not in data_map: data_map[t] = {}
-                
                 for col in columns_to_load:
-                    # Special logic for 'n' vs 'n0'
                     exclude = ["n0", "n at"] if col.lower() == "n" and "vector" in col.lower() else None
-                    # If user asks for 'n' scalar, we usually mean 'n0' or 'n at Vth'
                     if col.lower() == 'n': keywords = ["n0", "n at", "slope factor"]
                     else: keywords = [col.lower()]
-                    
                     idx = find_col_index(head, keywords, exclude=exclude)
                     if idx != -1 and idx < len(row):
                         data_map[t][col] = float(row[idx])
         except: pass
-
     sorted_keys = sorted(data_map.keys())
     result = {'Temp': np.array(sorted_keys)}
-    
     for col in columns_to_load:
         arr = []
-        for k in sorted_keys:
-            arr.append(data_map[k].get(col, np.nan))
+        for k in sorted_keys: arr.append(data_map[k].get(col, np.nan))
         result[col] = np.array(arr)
-        
     return result
 
 def load_vector_data_from_dir(directory, vector_keys):
-    """
-    High-level loader for multiple vector columns (like Vg, Id) from a directory.
-    Args:
-        directory (str): Path to results folder.
-        vector_keys (list): List of column keyword strings e.g. ['Vg', 'Id']
-    Returns:
-        dict: { temp_key: { 'Vg': np.array, 'Id': np.array } }
-    """
     data_map = {}
     if not os.path.exists(directory): return data_map
-
     for fpath in glob.glob(os.path.join(directory, "*.tsv")):
         t = get_temp_from_filename(os.path.basename(fpath))
         if t is None: continue
-        
         try:
             with open(fpath, 'r') as f:
                 header = f.readline().strip().split('\t')
                 indices = {}
-                
-                # Find indices for all requested keys
                 for key in vector_keys:
                     exclude = ["n0"] if key.lower() == "n" else None
                     idx = find_col_index(header, [key.lower()], exclude=exclude)
                     if idx != -1: indices[key] = idx
-                
                 if not indices: continue
-
                 temp_vecs = {k: [] for k in indices}
-                
                 for line in f:
                     parts = line.strip().split('\t')
                     for key, idx in indices.items():
                         if len(parts) > idx:
                             try: temp_vecs[key].append(float(parts[idx]))
                             except: temp_vecs[key].append(np.nan)
-                
-                # Only add if we got data
                 if any(temp_vecs.values()):
                     data_map[t] = {k: np.array(v) for k, v in temp_vecs.items()}
         except: pass
@@ -402,6 +365,20 @@ def calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l): return math.sqrt((
 
 # --- Plotting Functions ---
 
+# Define the custom formatter for 3 decimal places
+def format_axis(ax):
+    """Applies 3-decimal floating point formatting to both axes."""
+    try:
+        # Define formatter: rounded to 3 places (e.g., 0.1234 -> 0.123)
+        formatter = FuncFormatter(lambda x, p: f"{x:.3g}" if abs(x) < 1e-3 or abs(x) > 1e4 else f"{x:.3f}")
+        
+        # Apply to X and Y axes if they are linear
+        if ax.get_xscale() == 'linear':
+            ax.xaxis.set_major_formatter(formatter)
+        if ax.get_yscale() == 'linear':
+            ax.yaxis.set_major_formatter(formatter)
+    except: pass
+
 def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_base="Plot"):
     """Generates a single window with 4 subplots showing scalar data."""
     try:
@@ -410,6 +387,7 @@ def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_b
 
         ax1.plot(x_data, y_data, 'o-', linewidth=2, label="Data")
         ax1.set_xlabel(x_label); ax1.set_ylabel(y_label); ax1.set_title("1. Linear"); ax1.grid(True)
+        format_axis(ax1) # Apply smart formatting
 
         ax2.plot(x_data, y_data, 'o-', linewidth=2, label="Data", color='orange')
         ax2.set_xlabel(x_label); ax2.set_ylabel(y_label); ax2.set_title("2. Scientific"); ax2.grid(True)
@@ -423,7 +401,9 @@ def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_b
         ax4.plot(x_data, y_data, 'o-', linewidth=1.5, color='black', markersize=4, label="Data")
         font_ieee = {'family': 'serif', 'size': 10}
         ax4.set_xlabel(x_label, fontdict=font_ieee); ax4.set_ylabel(y_label, fontdict=font_ieee); ax4.set_title("4. IEEE Style", fontdict=font_ieee)
-        ax4.grid(True, linewidth=0.5, linestyle='--'); ax4.yaxis.set_major_formatter(formatter)
+        ax4.grid(True, linewidth=0.5, linestyle='--'); ax4.tick_params(axis='both', which='major', labelsize=9)
+        # Use simple formatter for IEEE style too
+        format_axis(ax4)
 
         plt.tight_layout()
     except Exception as e: print(f"Plot Error: {e}")
@@ -460,14 +440,18 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base):
                     ax.plot(xa[mask], ya[mask], linewidth=1.2, color=colors[i])
 
         ax1.set_title("1. Linear"); ax1.grid(True); draw_lines(ax1, 'linear'); ax1.set_xlabel(x_label); ax1.set_ylabel(y_label)
+        format_axis(ax1) # Apply smart formatting
+
         ax2.set_title("2. Scientific"); ax2.grid(True); draw_lines(ax2, 'linear'); ax2.set_xlabel(x_label); ax2.set_ylabel(y_label)
         try: ax2.yaxis.set_major_formatter(ScalarFormatter(useMathText=True)); ax2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
         except: pass
+        
         ax3.set_title("3. Log Scale"); ax3.grid(True, which="both"); draw_lines(ax3, 'log'); ax3.set_xlabel(x_label); ax3.set_ylabel(f"|{y_label}|")
         
         font_ieee = {'family': 'serif', 'size': 10}
         ax4.set_title("4. IEEE Style", fontdict=font_ieee); ax4.grid(True, linewidth=0.5, linestyle='--')
         draw_lines(ax4, 'linear'); ax4.set_xlabel(x_label, fontdict=font_ieee); ax4.set_ylabel(y_label, fontdict=font_ieee)
+        format_axis(ax4) # Apply smart formatting
         
         sm = plt.cm.ScalarMappable(cmap=cm.jet, norm=plt.Normalize(vmin=min(sorted_keys), vmax=max(sorted_keys)))
         sm.set_array([])
