@@ -29,6 +29,9 @@ CONTEXT OF EQUATIONS & FUNCTIONS:
    - plot_family_of_curves: For 2D vector data (Family of Curves).
    - Smart Axis Formatting (3 decimals max).
 """
+"""
+Stand Brary Library - Core Physics & Utility Functions
+"""
 
 import os
 import math
@@ -74,8 +77,7 @@ def check_file_access(filepath, mode='r'):
             return False
     return True
 
-def get_temp_key(val):
-    return int(round(val))
+def get_temp_key(val): return int(round(val))
 
 def get_temp_from_filename(filename):
     try:
@@ -95,9 +97,7 @@ def find_col_index(headers, keywords, exclude=None):
     return -1
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
-    """Parses a simulation file with "Split-Merge" logic for sparse Ngspice data."""
     output_full_path = os.path.join(output_directory, output_filename)
-
     if not check_file_access(input_file_path, 'r'): sys.exit(1)
     if not os.path.exists(output_directory):
         print(f"Error: Output directory does not exist: {output_directory}")
@@ -189,7 +189,6 @@ def parse_simulation_file(input_file_path, output_directory, output_filename, co
     print(f"Success! Clean file saved to: {output_full_path}")
 
 def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='\t'):
-    """Exports data to a file with columns (vectors) and single-row constants."""
     vector_keys = list(vectors_dict.keys())
     scalar_keys = list(scalars_dict.keys())
     all_headers = vector_keys + scalar_keys
@@ -365,18 +364,25 @@ def calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l): return math.sqrt((
 
 # --- Plotting Functions ---
 
-# Define the custom formatter for 3 decimal places
+def smart_formatter(x, pos):
+    """
+    Format ticks to 3 decimal places max, removing trailing zeros.
+    0.233 -> 0.233
+    0.5639 -> 0.564
+    0.200 -> 0.2
+    """
+    if x == 0: return "0"
+    if abs(x) < 1e-4 or abs(x) > 1e5: 
+        return f"{x:.2e}" # Use scientific for very small/large
+    s = f"{x:.3f}"
+    return s.rstrip('0').rstrip('.') if '.' in s else s
+
 def format_axis(ax):
-    """Applies 3-decimal floating point formatting to both axes."""
+    """Applies smart formatting to linear axes."""
     try:
-        # Define formatter: rounded to 3 places (e.g., 0.1234 -> 0.123)
-        formatter = FuncFormatter(lambda x, p: f"{x:.3g}" if abs(x) < 1e-3 or abs(x) > 1e4 else f"{x:.3f}")
-        
-        # Apply to X and Y axes if they are linear
-        if ax.get_xscale() == 'linear':
-            ax.xaxis.set_major_formatter(formatter)
-        if ax.get_yscale() == 'linear':
-            ax.yaxis.set_major_formatter(formatter)
+        formatter = FuncFormatter(smart_formatter)
+        if ax.get_xscale() == 'linear': ax.xaxis.set_major_formatter(formatter)
+        if ax.get_yscale() == 'linear': ax.yaxis.set_major_formatter(formatter)
     except: pass
 
 def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_base="Plot"):
@@ -387,11 +393,12 @@ def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_b
 
         ax1.plot(x_data, y_data, 'o-', linewidth=2, label="Data")
         ax1.set_xlabel(x_label); ax1.set_ylabel(y_label); ax1.set_title("1. Linear"); ax1.grid(True)
-        format_axis(ax1) # Apply smart formatting
+        format_axis(ax1)
 
         ax2.plot(x_data, y_data, 'o-', linewidth=2, label="Data", color='orange')
         ax2.set_xlabel(x_label); ax2.set_ylabel(y_label); ax2.set_title("2. Scientific"); ax2.grid(True)
-        formatter = ScalarFormatter(); formatter.set_powerlimits((0, 0)); ax2.yaxis.set_major_formatter(formatter)
+        ax2.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+        ax2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
 
         if hasattr(y_data, 'tolist'): y_abs = [abs(y) for y in y_data]
         else: y_abs = [abs(y) for y in y_data]
@@ -402,18 +409,20 @@ def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_b
         font_ieee = {'family': 'serif', 'size': 10}
         ax4.set_xlabel(x_label, fontdict=font_ieee); ax4.set_ylabel(y_label, fontdict=font_ieee); ax4.set_title("4. IEEE Style", fontdict=font_ieee)
         ax4.grid(True, linewidth=0.5, linestyle='--'); ax4.tick_params(axis='both', which='major', labelsize=9)
-        # Use simple formatter for IEEE style too
         format_axis(ax4)
 
         plt.tight_layout()
     except Exception as e: print(f"Plot Error: {e}")
 
-def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base):
-    """Generates a 4-view plot for a FAMILY of curves (e.g. Id vs Vg for many Temps)."""
+def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, log_x=False):
+    """
+    Generates a 4-view plot for a FAMILY of curves.
+    Args:
+        log_x (bool): If True, use semilogx/loglog instead of linear X-axis.
+    """
     try:
         sorted_keys = sorted(data_map.keys())
         if not sorted_keys: return
-        
         plot_keys = sorted_keys[::max(1, len(sorted_keys)//20)]
         colors = cm.jet(np.linspace(0, 1, len(plot_keys)))
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
@@ -427,20 +436,35 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base):
                 min_len = min(len(x), len(y))
                 if min_len == 0: continue
                 
-                xa = np.array(x[:min_len])
-                ya = np.array(y[:min_len])
+                xa, ya = np.array(x[:min_len]), np.array(y[:min_len])
                 mask = ~np.isnan(ya)
                 if not np.any(mask): continue
                 
+                # Apply Log logic
+                x_plot = xa[mask]
+                y_plot = ya[mask]
+                
                 if mode == 'log':
-                    y_safe = np.abs(ya[mask])
+                    # Log Y
+                    y_safe = np.abs(y_plot)
                     y_safe[y_safe==0] = 1e-15
-                    ax.semilogy(xa[mask], y_safe, linewidth=1.2, color=colors[i])
+                    if log_x: # Log X and Log Y -> LogLog
+                        x_safe = np.abs(x_plot)
+                        x_safe[x_safe==0] = 1e-15
+                        ax.loglog(x_safe, y_safe, linewidth=1.2, color=colors[i])
+                    else: # Linear X and Log Y -> Semilogy
+                        ax.semilogy(x_plot, y_safe, linewidth=1.2, color=colors[i])
                 else:
-                    ax.plot(xa[mask], ya[mask], linewidth=1.2, color=colors[i])
+                    # Linear Y
+                    if log_x: # Log X and Linear Y -> Semilogx
+                        x_safe = np.abs(x_plot)
+                        x_safe[x_safe==0] = 1e-15
+                        ax.semilogx(x_safe, y_plot, linewidth=1.2, color=colors[i])
+                    else: # Linear X and Linear Y
+                        ax.plot(x_plot, y_plot, linewidth=1.2, color=colors[i])
 
         ax1.set_title("1. Linear"); ax1.grid(True); draw_lines(ax1, 'linear'); ax1.set_xlabel(x_label); ax1.set_ylabel(y_label)
-        format_axis(ax1) # Apply smart formatting
+        if not log_x: format_axis(ax1)
 
         ax2.set_title("2. Scientific"); ax2.grid(True); draw_lines(ax2, 'linear'); ax2.set_xlabel(x_label); ax2.set_ylabel(y_label)
         try: ax2.yaxis.set_major_formatter(ScalarFormatter(useMathText=True)); ax2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
@@ -451,7 +475,7 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base):
         font_ieee = {'family': 'serif', 'size': 10}
         ax4.set_title("4. IEEE Style", fontdict=font_ieee); ax4.grid(True, linewidth=0.5, linestyle='--')
         draw_lines(ax4, 'linear'); ax4.set_xlabel(x_label, fontdict=font_ieee); ax4.set_ylabel(y_label, fontdict=font_ieee)
-        format_axis(ax4) # Apply smart formatting
+        if not log_x: format_axis(ax4)
         
         sm = plt.cm.ScalarMappable(cmap=cm.jet, norm=plt.Normalize(vmin=min(sorted_keys), vmax=max(sorted_keys)))
         sm.set_array([])
