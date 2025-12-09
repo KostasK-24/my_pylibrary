@@ -49,7 +49,7 @@ from .core import (
     plot_family_of_curves
 )
 
-__version__ = "1.13.0"
+__version__ = "1.14.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 

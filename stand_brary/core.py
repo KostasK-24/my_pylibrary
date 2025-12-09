@@ -425,6 +425,7 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, 
         if not sorted_keys: return
         plot_keys = sorted_keys[::max(1, len(sorted_keys)//20)]
         colors = cm.jet(np.linspace(0, 1, len(plot_keys)))
+        
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
         fig.suptitle(f"{title_base}", fontsize=16)
 
@@ -432,31 +433,44 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, 
             for i, k in enumerate(plot_keys):
                 d = data_map[k]
                 if x_key not in d or y_key not in d: continue
-                x, y = d[x_key], d[y_key]
-                min_len = min(len(x), len(y))
+                
+                # 1. Get Lists
+                x_raw = d[x_key]
+                y_raw = d[y_key]
+                min_len = min(len(x_raw), len(y_raw))
                 if min_len == 0: continue
                 
-                xa, ya = np.array(x[:min_len]), np.array(y[:min_len])
-                mask = ~np.isnan(ya)
+                # 2. Force conversion to Float Arrays (Handles None/Strings safely)
+                # This ensures [None, 0.5, ...] becomes [NaN, 0.5, ...]
+                try:
+                    xa = np.array(x_raw[:min_len], dtype=float)
+                    ya = np.array(y_raw[:min_len], dtype=float)
+                except: continue # Skip completely broken data
+                
+                # 3. CREATE MASK: Filter out NaNs and Infs from BOTH axes
+                # This effectively "skips" the blank lines at the start/end
+                mask = np.isfinite(xa) & np.isfinite(ya)
+                
                 if not np.any(mask): continue
                 
-                # Apply Log logic
+                # 4. Apply Mask
                 x_plot = xa[mask]
                 y_plot = ya[mask]
                 
                 if mode == 'log':
-                    # Log Y
+                    # Log Y Logic
                     y_safe = np.abs(y_plot)
-                    y_safe[y_safe==0] = 1e-15
-                    if log_x: # Log X and Log Y -> LogLog
+                    y_safe[y_safe==0] = 1e-15 # Floor for log
+                    
+                    if log_x: # Log X and Log Y
                         x_safe = np.abs(x_plot)
                         x_safe[x_safe==0] = 1e-15
                         ax.loglog(x_safe, y_safe, linewidth=1.2, color=colors[i])
-                    else: # Linear X and Log Y -> Semilogy
+                    else: # Linear X and Log Y
                         ax.semilogy(x_plot, y_safe, linewidth=1.2, color=colors[i])
                 else:
-                    # Linear Y
-                    if log_x: # Log X and Linear Y -> Semilogx
+                    # Linear Y Logic
+                    if log_x: # Log X and Linear Y
                         x_safe = np.abs(x_plot)
                         x_safe[x_safe==0] = 1e-15
                         ax.semilogx(x_safe, y_plot, linewidth=1.2, color=colors[i])
