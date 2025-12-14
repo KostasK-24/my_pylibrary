@@ -61,10 +61,11 @@ from .core import (
     # Plotting & Reporting
     plot_four_styles,
     plot_family_of_curves,
-    export_current_plot_to_tex
+    export_current_plot_to_tex,
+    inject_plots_into_tex
 )
 
-__version__ = "1.17.0"
+__version__ = "1.18.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
@@ -113,5 +114,6 @@ __all__ = [
     "calculate_gms_over_id", "calculate_gmg_over_id",
     
     # Plotting
-    "plot_four_styles", "plot_family_of_curves", "export_current_plot_to_tex"
+    "plot_four_styles", "plot_family_of_curves", 
+    "export_current_plot_to_tex", "inject_plots_into_tex"
 ]
