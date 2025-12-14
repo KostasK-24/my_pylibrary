@@ -90,6 +90,13 @@ extraction (EKV Model), numerical analysis, file handling, plotting, and LaTeX r
     - export_current_plot_to_tex(title, tex_path, img_dir)
 ===============================================================================
 """
+"""
+Stand Brary Library - Core Physics & Utility Functions (v1.17.0)
+
+Updates:
+- export_current_plot_to_tex: Added 'write_to_file' flag. 
+  Allows capturing LaTeX code for targeted insertion instead of blind appending.
+"""
 
 import os
 import math
@@ -398,67 +405,67 @@ def load_text_file_by_column(filepath): return {}
 # --- 4. Physics: Basic Parameters & Threshold ---
 
 def calculate_cox_prime(t_ox):
-    """Calculates Oxide Capacitance per unit area: Cox' = Eox / Tox [cite: 372]"""
+    """Calculates Oxide Capacitance per unit area: Cox' = Eox / Tox"""
     return EPSILON_OX/t_ox if t_ox>0 else 0.0
 
 def calculate_gamma(n_sub, cox):
-    """Calculates Body Effect Parameter: Gamma = sqrt(2*q*Esi*Nsub) / Cox' [cite: 372]"""
+    """Calculates Body Effect Parameter: Gamma = sqrt(2*q*Esi*Nsub) / Cox'"""
     return math.sqrt(2*Q_ELEMENTARY*EPSILON_SI*n_sub)/cox if cox!=0 else 0.0
 
 def calculate_fermi_potential(ut, n_sub, ni=NI_300K):
-    """Calculates Fermi Potential: Phi = 2*Ut*ln(Nsub/ni) [cite: 372]"""
+    """Calculates Fermi Potential: Phi = 2*Ut*ln(Nsub/ni)"""
     return 2*ut*math.log(n_sub/ni) if ni!=0 else 0.0
 
 def calculate_vto(vfb, phi, gamma):
-    """Calculates Threshold Voltage (Vto) = Vfb + Phi + Gamma*sqrt(Phi) [cite: 378]"""
+    """Calculates Threshold Voltage (Vto) = Vfb + Phi + Gamma*sqrt(Phi)"""
     if phi < 0: return vfb + phi # Sanity check for phi<0
     return vfb + phi + gamma * math.sqrt(phi)
 
 def calculate_n0(gamma, phi):
-    """Calculates Slope Factor at Vto: n0 = 1 + Gamma / (2*sqrt(Phi)) [cite: 381]"""
+    """Calculates Slope Factor at Vto: n0 = 1 + Gamma / (2*sqrt(Phi))"""
     if phi <= 0: return 1.0
     return 1 + gamma / (2 * math.sqrt(phi))
 
 def calculate_slope_factor(gamma, vp, phi):
-    """Calculates Slope Factor n(Vp) = 1 + Gamma / (2*sqrt(Vp+Phi)) [cite: 381]"""
+    """Calculates Slope Factor n(Vp) = 1 + Gamma / (2*sqrt(Vp+Phi))"""
     return 1 + gamma/(2*math.sqrt(vp+phi)) if (vp+phi)>0 else 1.0
 
 def calculate_pinch_off_voltage(vg, vto, n):
-    """Approximation: Vp ~= (Vg - Vto) / n [cite: 375]"""
+    """Approximation: Vp ~= (Vg - Vto) / n"""
     return (vg-vto)/n if n!=0 else 0.0
 
 # --- 5. Physics: Normalization & EKV Basics ---
 
 def calculate_normalization_charge_q0(ut, cox):
-    """Calculates Normalization Charge Q0 = 2 * Ut * Cox' [cite: 385]"""
+    """Calculates Normalization Charge Q0 = 2 * Ut * Cox'"""
     return 2 * ut * cox
 
 def calculate_ispec(deriv, ut):
-    """Slope Method: Ispec = (2 * slope * Ut)^2 [cite: 164]"""
+    """Slope Method: Ispec = (2 * slope * Ut)^2"""
     return (2*deriv*ut)**2
 
 def calculate_theoretical_ispec(n, ut, mu, cox, w, l):
-    """Theoretical Ispec = 2*n*Ut^2*mu*Cox*(W/L) [cite: 383]"""
+    """Theoretical Ispec = 2*n*Ut^2*mu*Cox*(W/L)"""
     return 2*n*(ut**2)*mu*cox*(w/l) if l!=0 else 0.0
 
 def calculate_beta_eff(isource, n0, ut):
-    """Extracts Beta from Specific Current relation [cite: 383]"""
+    """Extracts Beta from Specific Current relation"""
     return isource/(n0*ut**2) if (n0!=0 and ut!=0) else 0.0
 
 def calculate_mobility(beta, cox, w, l):
-    """Extracts Mobility from Beta [cite: 383]"""
+    """Extracts Mobility from Beta"""
     return (beta*l)/(cox*w) if (cox!=0 and w!=0) else 0.0
 
 # --- 6. Physics: Currents & Inversion Charges ---
 
 def calculate_inversion_coefficient(id_abs, ispec):
-    """Calculates IC = Id / Ispec [cite: 196]"""
+    """Calculates IC = Id / Ispec"""
     return id_abs/ispec if ispec!=0 else 0.0
 
 def calculate_normalized_charge_ekv(ic):
     """
     Calculates Normalized Inversion Charge q from IC.
-    q = sqrt(1/4 + IC) - 1/2 [cite: 399]
+    q = sqrt(1/4 + IC) - 1/2
     """
     return math.sqrt(0.25+ic)-0.5 if ic>=-0.25 else 0.0
 
@@ -466,39 +473,39 @@ def calculate_normalized_charge_ekv(ic):
 calculate_surface_potential_approx = calculate_normalized_charge_ekv
 
 def calculate_normalized_current_ekv(q):
-    """Calculates Normalized Current i from Charge q: i = q^2 + q [cite: 393]"""
+    """Calculates Normalized Current i from Charge q: i = q^2 + q"""
     return q**2 + q
 
 def calculate_drain_current_ekv_all_regions(ispec, ifwd, irev):
-    """Calculates Id = Ispec * (if - ir) [cite: 397]"""
+    """Calculates Id = Ispec * (if - ir)"""
     return ispec * (ifwd - irev)
 
 def calculate_drain_current_strong(n, beta, vp, vs):
-    """Id (Strong Inversion) [cite: 415]"""
+    """Id (Strong Inversion)"""
     return (n*beta/2)*((vp-vs)**2) if vp>vs else 0.0
 
 def calculate_drain_current_weak(id0, vg, vs, n, ut):
-    """Id (Weak Inversion) [cite: 422]"""
+    """Id (Weak Inversion)"""
     return id0*math.exp((vg-n*vs)/(n*ut)) if (n!=0 and ut!=0) else 0.0
 
 # --- 7. Physics: Transconductances ---
 
 def calculate_gms_ekv(ispec, ut, qs):
-    """Calculates gms = (Ispec/Ut) * qs [cite: 403]"""
+    """Calculates gms = (Ispec/Ut) * qs"""
     if ut == 0: return 0.0
     return (ispec / ut) * qs
 
 def calculate_gmg_ekv(gms, n):
-    """Calculates gmg = gms / n [cite: 404]"""
+    """Calculates gmg = gms / n"""
     return gms / n if n != 0 else 0.0
 
 def calculate_gmd_ekv(ispec, ut, qd):
-    """Calculates gmd = (Ispec/Ut) * qd [cite: 403]"""
+    """Calculates gmd = (Ispec/Ut) * qd"""
     if ut == 0: return 0.0
     return (ispec / ut) * qd
 
 def calculate_gmb_ekv(n, gms, gmd):
-    """Calculates gmb = ((n-1)/n) * (gms - gmd) [cite: 405]"""
+    """Calculates gmb = ((n-1)/n) * (gms - gmd)"""
     if n == 0: return 0.0
     return ((n - 1) / n) * (gms - gmd)
 
@@ -506,35 +513,35 @@ def calculate_gmb_ekv(n, gms, gmd):
 
 def calculate_cgs_ekv(qs, qd=0.0):
     """
-    Calculates intrinsic Cgs[cite: 438].
-    If qd=0 (Saturation), returns (qs/3) * (2qs+3)/(qs+1)^2[cite: 449].
+    Calculates intrinsic Cgs.
+    If qd=0 (Saturation), returns (qs/3) * (2qs+3)/(qs+1)^2.
     """
     denom = (qs + qd + 1)**2
     if denom == 0: return 0.0
     return (qs/3.0) * (2*qs + 4*qd + 3) / denom
 
 def calculate_cgd_ekv(qs, qd):
-    """Calculates intrinsic Cgd [cite: 441]"""
+    """Calculates intrinsic Cgd"""
     denom = (qs + qd + 1)**2
     if denom == 0: return 0.0
     return (qd/3.0) * (2*qd + 4*qs + 3) / denom
 
 def calculate_cgb_ekv(n, cgs, cgd):
-    """Calculates intrinsic Cgb [cite: 444]"""
+    """Calculates intrinsic Cgb"""
     return ((n-1)/n)*(1-cgs-cgd) if n!=0 else 0.0
 
 def calculate_cbs_ekv(n, cgs):
-    """Calculates intrinsic Cbs = (n-1)*Cgs [cite: 439]"""
+    """Calculates intrinsic Cbs = (n-1)*Cgs"""
     return (n - 1) * cgs
 
 def calculate_cbd_ekv(n, cgd):
-    """Calculates intrinsic Cbd = (n-1)*Cgd [cite: 445]"""
+    """Calculates intrinsic Cbd = (n-1)*Cgd"""
     return (n - 1) * cgd
 
 # --- 9. Physics: Small Signal & AC ---
 
 def calculate_vds_sat(ut, ic):
-    """Calculates Vds,sat = 2*Ut*sqrt(IC + 0.25) + 3*Ut [cite: 470]"""
+    """Calculates Vds,sat = 2*Ut*sqrt(IC + 0.25) + 3*Ut"""
     return 2*ut*math.sqrt(ic+0.25)+3*ut
 
 def calculate_early_voltage(id_vector, vds_vector):
@@ -554,41 +561,41 @@ def calculate_early_voltage(id_vector, vds_vector):
     return va_list
 
 def calculate_tau_0(l, mu, ut):
-    """Calculates Transit Time constant Tau0 = L^2 / (mu * Ut) [cite: 387]"""
+    """Calculates Transit Time constant Tau0 = L^2 / (mu * Ut)"""
     return (l**2)/(mu*ut) if (mu!=0 and ut!=0) else 0.0
 
 def calculate_tau_qs(tau0, qs, qd=0.0):
-    """Calculates Quasi-static time constant Tau_qs [cite: 478]"""
+    """Calculates Quasi-static time constant Tau_qs"""
     denom = (qs + qd + 1)**3
     if denom == 0: return 0.0
     num = 4*(qs**2) + 10*qs + 12*qs*qd + 4*(qd**2) + 5
     return tau0 * (1.0/30.0) * (num / denom)
 
 def calculate_ft_saturation(mu, ut, l, ic):
-    """Calculates ft (Saturation) [cite: 485]"""
+    """Calculates ft (Saturation)"""
     if l==0: return 0.0
     return (mu*ut)/(2*math.pi*l**2)*(math.sqrt(1+4*ic)-1)
 
 def calculate_ft_general(gm, c_total):
-    """Calculates ft = gm / (2*pi*Ctotal) [cite: 486]"""
+    """Calculates ft = gm / (2*pi*Ctotal)"""
     if c_total == 0: return 0.0
     return gm / (2 * math.pi * c_total)
 
 # --- 10. Physics: Noise & Mismatch ---
 
 def calculate_flicker_noise(kf, cox, w, l, f, af, gm):
-    """Calculates Flicker Noise density Sid [cite: 493]"""
+    """Calculates Flicker Noise density Sid"""
     return (gm**2*kf)/(cox*w*l*f**af) if (cox!=0 and w!=0 and l!=0 and f!=0) else 0.0
 
 def calculate_thermal_noise(k, t, gamma_noise, gms):
     """
-    Calculates Thermal Noise density Sid = 4*k*T*gamma*gms[cite: 494].
+    Calculates Thermal Noise density Sid = 4*k*T*gamma*gms.
     Note: gamma_noise is the noise factor (e.g. 2/3), distinct from body effect.
     """
     return 4*k*t*gamma_noise*gms
 
 def calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l):
-    """Calculates Drain Current Mismatch sigma(dId/Id) [cite: 497]"""
+    """Calculates Drain Current Mismatch sigma(dId/Id)"""
     term1 = (a_beta / math.sqrt(w*l))**2
     term2 = (gm/id * sig_vt)**2
     return math.sqrt(term1 + term2) if (w!=0 and l!=0 and id!=0) else 0.0
@@ -596,7 +603,7 @@ def calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l):
 def calculate_voltage_mismatch_variance(sigma_vt, gm, ib, sigma_beta):
     """
     Calculates Input-Referred Voltage Mismatch Variance (sigma_Vgs)^2.
-    Based on (sigma_v)^2 = sigma_vt^2 + (Ib/gm)^2 * sigma_beta^2 [cite: 353]
+    Based on (sigma_v)^2 = sigma_vt^2 + (Ib/gm)^2 * sigma_beta^2
     """
     if gm == 0: return 0.0
     return (sigma_vt**2) + ((ib/gm)**2)*(sigma_beta**2)
@@ -763,10 +770,16 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, 
         
     except Exception as e: print(f"Plotting Error: {e}")
 
-def export_current_plot_to_tex(title, tex_file_path, img_dir_path):
+def export_current_plot_to_tex(title, tex_file_path, img_dir_path, write_to_file=True):
     """
-    Saves the current matplotlib figure to the given directory
-    and appends the LaTeX code to the target .tex file.
+    Saves the current matplotlib figure to the given directory.
+    
+    If write_to_file=True (default):
+        Appends the LaTeX code to the target .tex file immediately.
+        
+    If write_to_file=False:
+        Returns the LaTeX string instead of writing it. 
+        (Useful for collecting all plots and inserting them into a specific section later).
     """
     if not os.path.exists(img_dir_path):
         os.makedirs(img_dir_path)
@@ -781,12 +794,12 @@ def export_current_plot_to_tex(title, tex_file_path, img_dir_path):
         plt.gcf().savefig(abs_img_path, dpi=300, bbox_inches='tight')
     except Exception as e:
         print(f"Error saving image {img_filename}: {e}")
-        return
+        return ""
 
     # 3. Safe Caption
     safe_caption = title.replace("_", r"\_") 
     
-    # 4. Append LaTeX
+    # 4. Generate LaTeX
     rel_img_path = f"figures/{img_filename}"
     
     latex_content = f"""
@@ -799,9 +812,15 @@ def export_current_plot_to_tex(title, tex_file_path, img_dir_path):
 \\end{{figure}}
 """
     
-    try:
-        with open(tex_file_path, "a") as f:
-            f.write(latex_content)
-        print(f" -> Exported to TeX: '{title}'")
-    except Exception as e:
-        print(f"Error writing to .tex file: {e}")
+    if write_to_file:
+        try:
+            with open(tex_file_path, "a") as f:
+                f.write(latex_content)
+            print(f" -> Exported to TeX: '{title}'")
+        except Exception as e:
+            print(f"Error writing to .tex file: {e}")
+        return ""
+    else:
+        # Just notify console and return string
+        print(f" -> Generated LaTeX for: '{title}'")
+        return latex_content

@@ -64,7 +64,7 @@ from .core import (
     export_current_plot_to_tex
 )
 
-__version__ = "1.16.0"
+__version__ = "1.17.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
