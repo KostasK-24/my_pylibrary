@@ -1,36 +1,94 @@
 """
-Stand Brary Library - Core Physics & Utility Functions
+Stand Brary Library - Core Physics & Utility Functions (v1.16.0)
 
-This module provides essential tools for semiconductor parameter extraction, 
-numerical analysis, file handling, and plotting.
+This module provides a comprehensive suite of tools for semiconductor parameter 
+extraction (EKV Model), numerical analysis, file handling, plotting, and LaTeX reporting.
 
-CONTEXT OF EQUATIONS & FUNCTIONS:
+===============================================================================
+                                 CONTENT INDEX
+===============================================================================
 
-1. FUNDAMENTAL CONSTANTS:
-   - K_BOLTZMANN (k): 1.38e-23 J/K
-   - Q_ELEMENTARY (q): 1.602e-19 C
-   - EPSILON_OX: 3.45e-11 F/m
-   - EPSILON_SI: 1.04e-10 F/m
-   - NI_300K: 1.19e10 cm^-3
+1. FUNDAMENTAL PHYSICAL CONSTANTS
+   - K_BOLTZMANN, Q_ELEMENTARY, EPSILON_OX, EPSILON_SI, NI_300K
 
-2. UTILITY & FILE HANDLING:
-   - parse_simulation_file: Robust "Split-Merge" parsing for sparse Ngspice data.
-   - export_vectors_and_scalars: Generic TSV export.
-   - load_scalar_map / load_vector_map: Generic loading.
-   - check_file_access
-   - get_temp_key / get_temp_from_filename
-   - find_col_index
+2. UTILITY & FILE HANDLING
+   - calculate_thermal_voltage(temperature_celsius) -> (Ut, T_kelvin)
+   - check_file_access(filepath, mode) -> bool
+   - get_temp_key(val) -> int
+   - get_temp_from_filename(filename) -> float
+   - find_col_index(headers, keywords, exclude) -> int
+   - parse_simulation_file(input_path, output_dir, output_name, mapping)
+   - export_vectors_and_scalars(filepath, vectors_dict, scalars_dict)
+   - load_scalar_map(directory, target_column) -> dict {temp: val}
+   - load_vector_map(directory, target_column) -> dict {temp: list}
+   - load_scalar_data_from_dir(directory, cols) -> dict {'Temp':[], 'Col':[]}
+   - load_vector_data_from_dir(directory, keys) -> dict {temp: {key: array}}
 
-3. NUMERICAL & PHYSICS:
-   - Derivatives, Interpolation, Vth, Cox, Ispec, Mobility, etc.
+3. MATH HELPERS
+   - calculate_centered_derivative(y, x) -> list (dy/dx)
+   - find_abs_min_or_max(data, find_min=True) -> float
+   - calculate_linear_interpolation(x0, y0, x1, y1, target_y) -> float
 
-4. PLOTTING:
-   - plot_four_styles: For 1D scalar data.
-   - plot_family_of_curves: For 2D vector data (Family of Curves).
-   - Smart Axis Formatting (3 decimals max).
-"""
-"""
-Stand Brary Library - Core Physics & Utility Functions
+4. PHYSICS: BASIC PARAMETERS & THRESHOLD (From PDF pg. 1)
+   - calculate_cox_prime(t_ox)
+   - calculate_gamma(n_sub, cox_prime)
+   - calculate_fermi_potential(ut, n_sub, ni)
+   - calculate_vto(vfb, phi, gamma)                  <-- [NEW]
+   - calculate_n0(gamma, phi)                        <-- [NEW]
+   - calculate_slope_factor(gamma, vp, phi)
+   - calculate_pinch_off_voltage(vg, vto, n)
+
+5. PHYSICS: NORMALIZATION & EKV BASICS (From PDF pg. 1-2)
+   - calculate_normalization_charge_q0(ut, cox)      <-- [NEW]
+   - calculate_ispec(deriv_sqrt_id, ut)              (Slope Method)
+   - calculate_theoretical_ispec(n, ut, mu, cox, w, l)
+   - calculate_beta_eff(isource, n0, ut)
+   - calculate_mobility(beta, cox, w, l)
+   
+6. PHYSICS: CURRENTS & INVERSION CHARGES (From PDF pg. 1-2)
+   - calculate_inversion_coefficient(id_abs, ispec)
+   - calculate_normalized_charge_ekv(ic)             (q = sqrt(1/4+ic) - 1/2)
+   - calculate_normalized_current_ekv(q)             (i = q^2 + q) [NEW]
+   - calculate_drain_current_ekv_all_regions(ispec, ifwd, irev) [NEW]
+   - calculate_drain_current_strong(n, beta, vp, vs)
+   - calculate_drain_current_weak(id0, vg, vs, n, ut)
+
+7. PHYSICS: TRANSCONDUCTANCES (From PDF pg. 1-2)
+   - calculate_gms_ekv(ispec, ut, qs)                <-- [NEW]
+   - calculate_gmg_ekv(gms, n)                       <-- [NEW]
+   - calculate_gmd_ekv(ispec, ut, qd)                <-- [NEW]
+   - calculate_gmb_ekv(n, gms, gmd)                  <-- [NEW]
+   
+8. PHYSICS: CAPACITANCES (From PDF pg. 3)
+   - calculate_cgs_ekv(qs, qd)                       (General & Saturation)
+   - calculate_cgd_ekv(qs, qd)                       (General & Saturation)
+   - calculate_cgb_ekv(n, cgs, cgd)                  (General)
+   - calculate_cbs_ekv(n, cgs)                       <-- [NEW]
+   - calculate_cbd_ekv(n, cgd)                       <-- [NEW]
+
+9. PHYSICS: SMALL SIGNAL & AC (From PDF pg. 3-4)
+   - calculate_vds_sat(ut, ic)
+   - calculate_early_voltage(id_vec, vds_vec)        <-- [NEW]
+   - calculate_tau_0(l, mu, ut)
+   - calculate_tau_qs(tau0, qs, qd)                  <-- [NEW]
+   - calculate_ft_saturation(mu, ut, l, ic)
+   - calculate_ft_general(gm, c_total)               <-- [NEW]
+
+10. PHYSICS: NOISE & MISMATCH (From PDF pg. 4)
+    - calculate_flicker_noise(kf, cox, w, l, f, af, gm)
+    - calculate_thermal_noise(k, t, gamma_noise, gms)
+    - calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l)
+    - calculate_voltage_mismatch_variance(sigma_vt, gm, ib, sigma_beta) [NEW]
+
+11. EXTENDED EXTRACTION HELPERS (User Requested)
+    - calculate_gms_over_id(vs_vec, id_vec, temp_c, normalize)
+    - calculate_gmg_over_id(vg_vec, id_vec, temp_c, normalize)
+
+12. PLOTTING & REPORTING
+    - plot_four_styles(...)
+    - plot_family_of_curves(...)
+    - export_current_plot_to_tex(title, tex_path, img_dir)
+===============================================================================
 """
 
 import os
@@ -46,16 +104,17 @@ try:
 except ImportError:
     pass
 
-# --- Fundamental Physical Constants ---
+# --- 1. Fundamental Physical Constants ---
 K_BOLTZMANN = 1.380649e-23
 Q_ELEMENTARY = 1.602176634e-19
 EPSILON_OX = 3.45e-11
 EPSILON_SI = 1.04e-10
 NI_300K = 1.19e10
 
-# --- Reusable Utility Functions ---
+# --- 2. Utility & File Handling ---
 
 def calculate_thermal_voltage(temperature_celsius):
+    """Calculates Ut = kT/q."""
     T_kelvin = temperature_celsius + 273.15
     Ut = (K_BOLTZMANN * T_kelvin) / Q_ELEMENTARY
     return Ut, T_kelvin
@@ -70,7 +129,6 @@ def check_file_access(filepath, mode='r'):
     elif mode == 'w' and not os.access(filepath, os.W_OK):
         directory = os.path.dirname(filepath)
         if not os.path.exists(filepath) and not os.access(directory, os.W_OK):
-             print(f"File Check Error: No permission to write to directory {directory}")
              return False
         if os.path.exists(filepath) and not os.access(filepath, os.W_OK):
             print(f"File Check Error: No permission to write to file at {filepath}")
@@ -214,8 +272,6 @@ def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='
                 f.write(delimiter.join(row_items) + "\n")
     except IOError as e: print(f"Error: {e}")
 
-# --- Data Loading Functions ---
-
 def load_scalar_map(directory, target_column):
     scalar_map = {}
     if not os.path.exists(directory): return scalar_map
@@ -318,7 +374,8 @@ def load_vector_data_from_dir(directory, vector_keys):
         except: pass
     return data_map
 
-# --- Math Helpers ---
+# --- 3. Math Helpers ---
+
 def calculate_centered_derivative(y, x):
     n = len(y)
     d = [None]*n
@@ -338,47 +395,276 @@ def calculate_linear_interpolation(x0, y0, x1, y1, ty):
 
 def load_text_file_by_column(filepath): return {}
 
-# --- Physics Helpers ---
-def calculate_cox_prime(t_ox): return EPSILON_OX/t_ox if t_ox>0 else 0.0
-def calculate_gamma(n_sub, cox): return math.sqrt(2*Q_ELEMENTARY*EPSILON_SI*n_sub)/cox if cox!=0 else 0.0
-def calculate_fermi_potential(ut, n_sub, ni=NI_300K): return 2*ut*math.log(n_sub/ni) if ni!=0 else 0.0
-def calculate_pinch_off_voltage(vg, vto, n): return (vg-vto)/n if n!=0 else 0.0
-def calculate_slope_factor(gamma, vp, phi): return 1 + gamma/(2*math.sqrt(vp+phi)) if (vp+phi)>0 else 1.0
-def calculate_ispec(deriv, ut): return (2*deriv*ut)**2
-def calculate_theoretical_ispec(n, ut, mu, cox, w, l): return 2*n*(ut**2)*mu*cox*(w/l) if l!=0 else 0.0
-def calculate_inversion_coefficient(id_abs, ispec): return id_abs/ispec if ispec!=0 else 0.0
-def calculate_surface_potential_approx(ic): return math.sqrt(0.25+ic)-0.5 if ic>=-0.25 else 0.0
-def calculate_cgs_ekv(qs): return (qs/3)*((2*qs+3)/(qs+1)**2) if qs>-1 else 0.0
-def calculate_cgd_ekv(qs, qd): return (qd/3)*((2*qd+4*qs+3)/(qs+qd+1)**2) if (qs+qd+1)!=0 else 0.0
-def calculate_cgb_ekv(n, cgs, cgd): return ((n-1)/n)*(1-cgs-cgd) if n!=0 else 0.0
-def calculate_beta_eff(isource, n0, ut): return isource/(n0*ut**2) if (n0!=0 and ut!=0) else 0.0
-def calculate_mobility(beta, cox, w, l): return (beta*l)/(cox*w) if (cox!=0 and w!=0) else 0.0
-def calculate_drain_current_strong(n, beta, vp, vs): return (n*beta/2)*((vp-vs)**2) if vp>vs else 0.0
-def calculate_drain_current_weak(id0, vg, vs, n, ut): return id0*math.exp((vg-n*vs)/(n*ut)) if (n!=0 and ut!=0) else 0.0
-def calculate_vds_sat(ut, ic): return 2*ut*math.sqrt(ic+0.25)+3*ut
-def calculate_tau_0(l, mu, ut): return (l**2)/(mu*ut) if (mu!=0 and ut!=0) else 0.0
-def calculate_ft_saturation(mu, ut, l, ic): return (mu*ut)/(2*math.pi*l**2)*(math.sqrt(1+4*ic)-1) if l!=0 else 0.0
-def calculate_flicker_noise(kf, cox, w, l, f, af, gm): return (gm**2*kf)/(cox*w*l*f**af) if (cox!=0 and w!=0 and l!=0 and f!=0) else 0.0
-def calculate_thermal_noise(k, t, gam, gm): return 4*k*t*gam*gm
-def calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l): return math.sqrt((a_beta/math.sqrt(w*l))**2 + (gm/id*sig_vt)**2) if (w!=0 and l!=0 and id!=0) else 0.0
+# --- 4. Physics: Basic Parameters & Threshold ---
 
-# --- Plotting Functions ---
+def calculate_cox_prime(t_ox):
+    """Calculates Oxide Capacitance per unit area: Cox' = Eox / Tox [cite: 372]"""
+    return EPSILON_OX/t_ox if t_ox>0 else 0.0
+
+def calculate_gamma(n_sub, cox):
+    """Calculates Body Effect Parameter: Gamma = sqrt(2*q*Esi*Nsub) / Cox' [cite: 372]"""
+    return math.sqrt(2*Q_ELEMENTARY*EPSILON_SI*n_sub)/cox if cox!=0 else 0.0
+
+def calculate_fermi_potential(ut, n_sub, ni=NI_300K):
+    """Calculates Fermi Potential: Phi = 2*Ut*ln(Nsub/ni) [cite: 372]"""
+    return 2*ut*math.log(n_sub/ni) if ni!=0 else 0.0
+
+def calculate_vto(vfb, phi, gamma):
+    """Calculates Threshold Voltage (Vto) = Vfb + Phi + Gamma*sqrt(Phi) [cite: 378]"""
+    if phi < 0: return vfb + phi # Sanity check for phi<0
+    return vfb + phi + gamma * math.sqrt(phi)
+
+def calculate_n0(gamma, phi):
+    """Calculates Slope Factor at Vto: n0 = 1 + Gamma / (2*sqrt(Phi)) [cite: 381]"""
+    if phi <= 0: return 1.0
+    return 1 + gamma / (2 * math.sqrt(phi))
+
+def calculate_slope_factor(gamma, vp, phi):
+    """Calculates Slope Factor n(Vp) = 1 + Gamma / (2*sqrt(Vp+Phi)) [cite: 381]"""
+    return 1 + gamma/(2*math.sqrt(vp+phi)) if (vp+phi)>0 else 1.0
+
+def calculate_pinch_off_voltage(vg, vto, n):
+    """Approximation: Vp ~= (Vg - Vto) / n [cite: 375]"""
+    return (vg-vto)/n if n!=0 else 0.0
+
+# --- 5. Physics: Normalization & EKV Basics ---
+
+def calculate_normalization_charge_q0(ut, cox):
+    """Calculates Normalization Charge Q0 = 2 * Ut * Cox' [cite: 385]"""
+    return 2 * ut * cox
+
+def calculate_ispec(deriv, ut):
+    """Slope Method: Ispec = (2 * slope * Ut)^2 [cite: 164]"""
+    return (2*deriv*ut)**2
+
+def calculate_theoretical_ispec(n, ut, mu, cox, w, l):
+    """Theoretical Ispec = 2*n*Ut^2*mu*Cox*(W/L) [cite: 383]"""
+    return 2*n*(ut**2)*mu*cox*(w/l) if l!=0 else 0.0
+
+def calculate_beta_eff(isource, n0, ut):
+    """Extracts Beta from Specific Current relation [cite: 383]"""
+    return isource/(n0*ut**2) if (n0!=0 and ut!=0) else 0.0
+
+def calculate_mobility(beta, cox, w, l):
+    """Extracts Mobility from Beta [cite: 383]"""
+    return (beta*l)/(cox*w) if (cox!=0 and w!=0) else 0.0
+
+# --- 6. Physics: Currents & Inversion Charges ---
+
+def calculate_inversion_coefficient(id_abs, ispec):
+    """Calculates IC = Id / Ispec [cite: 196]"""
+    return id_abs/ispec if ispec!=0 else 0.0
+
+def calculate_normalized_charge_ekv(ic):
+    """
+    Calculates Normalized Inversion Charge q from IC.
+    q = sqrt(1/4 + IC) - 1/2 [cite: 399]
+    """
+    return math.sqrt(0.25+ic)-0.5 if ic>=-0.25 else 0.0
+
+# Backward compatibility alias
+calculate_surface_potential_approx = calculate_normalized_charge_ekv
+
+def calculate_normalized_current_ekv(q):
+    """Calculates Normalized Current i from Charge q: i = q^2 + q [cite: 393]"""
+    return q**2 + q
+
+def calculate_drain_current_ekv_all_regions(ispec, ifwd, irev):
+    """Calculates Id = Ispec * (if - ir) [cite: 397]"""
+    return ispec * (ifwd - irev)
+
+def calculate_drain_current_strong(n, beta, vp, vs):
+    """Id (Strong Inversion) [cite: 415]"""
+    return (n*beta/2)*((vp-vs)**2) if vp>vs else 0.0
+
+def calculate_drain_current_weak(id0, vg, vs, n, ut):
+    """Id (Weak Inversion) [cite: 422]"""
+    return id0*math.exp((vg-n*vs)/(n*ut)) if (n!=0 and ut!=0) else 0.0
+
+# --- 7. Physics: Transconductances ---
+
+def calculate_gms_ekv(ispec, ut, qs):
+    """Calculates gms = (Ispec/Ut) * qs [cite: 403]"""
+    if ut == 0: return 0.0
+    return (ispec / ut) * qs
+
+def calculate_gmg_ekv(gms, n):
+    """Calculates gmg = gms / n [cite: 404]"""
+    return gms / n if n != 0 else 0.0
+
+def calculate_gmd_ekv(ispec, ut, qd):
+    """Calculates gmd = (Ispec/Ut) * qd [cite: 403]"""
+    if ut == 0: return 0.0
+    return (ispec / ut) * qd
+
+def calculate_gmb_ekv(n, gms, gmd):
+    """Calculates gmb = ((n-1)/n) * (gms - gmd) [cite: 405]"""
+    if n == 0: return 0.0
+    return ((n - 1) / n) * (gms - gmd)
+
+# --- 8. Physics: Capacitances ---
+
+def calculate_cgs_ekv(qs, qd=0.0):
+    """
+    Calculates intrinsic Cgs[cite: 438].
+    If qd=0 (Saturation), returns (qs/3) * (2qs+3)/(qs+1)^2[cite: 449].
+    """
+    denom = (qs + qd + 1)**2
+    if denom == 0: return 0.0
+    return (qs/3.0) * (2*qs + 4*qd + 3) / denom
+
+def calculate_cgd_ekv(qs, qd):
+    """Calculates intrinsic Cgd [cite: 441]"""
+    denom = (qs + qd + 1)**2
+    if denom == 0: return 0.0
+    return (qd/3.0) * (2*qd + 4*qs + 3) / denom
+
+def calculate_cgb_ekv(n, cgs, cgd):
+    """Calculates intrinsic Cgb [cite: 444]"""
+    return ((n-1)/n)*(1-cgs-cgd) if n!=0 else 0.0
+
+def calculate_cbs_ekv(n, cgs):
+    """Calculates intrinsic Cbs = (n-1)*Cgs [cite: 439]"""
+    return (n - 1) * cgs
+
+def calculate_cbd_ekv(n, cgd):
+    """Calculates intrinsic Cbd = (n-1)*Cgd [cite: 445]"""
+    return (n - 1) * cgd
+
+# --- 9. Physics: Small Signal & AC ---
+
+def calculate_vds_sat(ut, ic):
+    """Calculates Vds,sat = 2*Ut*sqrt(IC + 0.25) + 3*Ut [cite: 470]"""
+    return 2*ut*math.sqrt(ic+0.25)+3*ut
+
+def calculate_early_voltage(id_vector, vds_vector):
+    """
+    Calculates Early Voltage (Va) = Id / gds = Id / (dId/dVds).
+    Assumes vectors are from Id vs Vds sweep.
+    """
+    gds = calculate_centered_derivative(id_vector, vds_vector)
+    va_list = []
+    for i in range(len(id_vector)):
+        val_id = id_vector[i]
+        val_gds = gds[i]
+        if val_gds is not None and val_gds != 0 and val_id != 0:
+            va_list.append(val_id / val_gds)
+        else:
+            va_list.append(None)
+    return va_list
+
+def calculate_tau_0(l, mu, ut):
+    """Calculates Transit Time constant Tau0 = L^2 / (mu * Ut) [cite: 387]"""
+    return (l**2)/(mu*ut) if (mu!=0 and ut!=0) else 0.0
+
+def calculate_tau_qs(tau0, qs, qd=0.0):
+    """Calculates Quasi-static time constant Tau_qs [cite: 478]"""
+    denom = (qs + qd + 1)**3
+    if denom == 0: return 0.0
+    num = 4*(qs**2) + 10*qs + 12*qs*qd + 4*(qd**2) + 5
+    return tau0 * (1.0/30.0) * (num / denom)
+
+def calculate_ft_saturation(mu, ut, l, ic):
+    """Calculates ft (Saturation) [cite: 485]"""
+    if l==0: return 0.0
+    return (mu*ut)/(2*math.pi*l**2)*(math.sqrt(1+4*ic)-1)
+
+def calculate_ft_general(gm, c_total):
+    """Calculates ft = gm / (2*pi*Ctotal) [cite: 486]"""
+    if c_total == 0: return 0.0
+    return gm / (2 * math.pi * c_total)
+
+# --- 10. Physics: Noise & Mismatch ---
+
+def calculate_flicker_noise(kf, cox, w, l, f, af, gm):
+    """Calculates Flicker Noise density Sid [cite: 493]"""
+    return (gm**2*kf)/(cox*w*l*f**af) if (cox!=0 and w!=0 and l!=0 and f!=0) else 0.0
+
+def calculate_thermal_noise(k, t, gamma_noise, gms):
+    """
+    Calculates Thermal Noise density Sid = 4*k*T*gamma*gms[cite: 494].
+    Note: gamma_noise is the noise factor (e.g. 2/3), distinct from body effect.
+    """
+    return 4*k*t*gamma_noise*gms
+
+def calculate_current_mismatch(sig_vt, gm, id, a_beta, w, l):
+    """Calculates Drain Current Mismatch sigma(dId/Id) [cite: 497]"""
+    term1 = (a_beta / math.sqrt(w*l))**2
+    term2 = (gm/id * sig_vt)**2
+    return math.sqrt(term1 + term2) if (w!=0 and l!=0 and id!=0) else 0.0
+
+def calculate_voltage_mismatch_variance(sigma_vt, gm, ib, sigma_beta):
+    """
+    Calculates Input-Referred Voltage Mismatch Variance (sigma_Vgs)^2.
+    Based on (sigma_v)^2 = sigma_vt^2 + (Ib/gm)^2 * sigma_beta^2 [cite: 353]
+    """
+    if gm == 0: return 0.0
+    return (sigma_vt**2) + ((ib/gm)**2)*(sigma_beta**2)
+
+# --- 11. Extended Extraction Helpers ---
+
+def calculate_gms_over_id(v_source_vector, id_vector, temp_c, normalize=False):
+    """
+    Calculates gms/Id = d(ln(Id)) / dVs.
+    If normalize=True, returns gms/Id * Ut (Efficiency).
+    """
+    Ut, _ = calculate_thermal_voltage(temp_c)
+    
+    # 1. Compute ln(Id) safely
+    ln_id = []
+    for val in id_vector:
+        if val > 1e-15: ln_id.append(math.log(abs(val)))
+        else: ln_id.append(None) # Discard zero/negative current regions
+    
+    # 2. Compute Derivative w.r.t Source Voltage
+    deriv = calculate_centered_derivative(ln_id, v_source_vector)
+    
+    # 3. Normalize if requested
+    result = []
+    for d in deriv:
+        if d is None: 
+            result.append(None)
+        else:
+            if normalize: result.append(d * Ut)
+            else: result.append(d)
+    return result
+
+def calculate_gmg_over_id(v_gate_vector, id_vector, temp_c, normalize=False):
+    """
+    Calculates gmg/Id = d(ln(Id)) / dVg.
+    If normalize=True, returns gmg/Id * Ut.
+    """
+    Ut, _ = calculate_thermal_voltage(temp_c)
+    
+    # 1. Compute ln(Id) safely
+    ln_id = []
+    for val in id_vector:
+        if val > 1e-15: ln_id.append(math.log(abs(val)))
+        else: ln_id.append(None)
+    
+    # 2. Compute Derivative w.r.t Gate Voltage
+    deriv = calculate_centered_derivative(ln_id, v_gate_vector)
+    
+    # 3. Normalize if requested
+    result = []
+    for d in deriv:
+        if d is None: 
+            result.append(None)
+        else:
+            if normalize: result.append(d * Ut)
+            else: result.append(d)
+    return result
+
+# --- 12. Plotting Functions ---
 
 def smart_formatter(x, pos):
-    """
-    Format ticks to 3 decimal places max, removing trailing zeros.
-    0.233 -> 0.233
-    0.5639 -> 0.564
-    0.200 -> 0.2
-    """
     if x == 0: return "0"
     if abs(x) < 1e-4 or abs(x) > 1e5: 
-        return f"{x:.2e}" # Use scientific for very small/large
+        return f"{x:.2e}"
     s = f"{x:.3f}"
     return s.rstrip('0').rstrip('.') if '.' in s else s
 
 def format_axis(ax):
-    """Applies smart formatting to linear axes."""
     try:
         formatter = FuncFormatter(smart_formatter)
         if ax.get_xscale() == 'linear': ax.xaxis.set_major_formatter(formatter)
@@ -386,7 +672,6 @@ def format_axis(ax):
     except: pass
 
 def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_base="Plot"):
-    """Generates a single window with 4 subplots showing scalar data."""
     try:
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(10, 8))
         fig.suptitle(f"{title_base} - 4 Views", fontsize=14)
@@ -415,17 +700,12 @@ def plot_four_styles(x_data, y_data, x_label="X-Axis", y_label="Y-Axis", title_b
     except Exception as e: print(f"Plot Error: {e}")
 
 def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, log_x=False):
-    """
-    Generates a 4-view plot for a FAMILY of curves.
-    Args:
-        log_x (bool): If True, use semilogx/loglog instead of linear X-axis.
-    """
     try:
         sorted_keys = sorted(data_map.keys())
         if not sorted_keys: return
         plot_keys = sorted_keys[::max(1, len(sorted_keys)//20)]
         colors = cm.jet(np.linspace(0, 1, len(plot_keys)))
-        
+
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
         fig.suptitle(f"{title_base}", fontsize=16)
 
@@ -433,48 +713,34 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, 
             for i, k in enumerate(plot_keys):
                 d = data_map[k]
                 if x_key not in d or y_key not in d: continue
-                
-                # 1. Get Lists
                 x_raw = d[x_key]
                 y_raw = d[y_key]
                 min_len = min(len(x_raw), len(y_raw))
                 if min_len == 0: continue
-                
-                # 2. Force conversion to Float Arrays (Handles None/Strings safely)
-                # This ensures [None, 0.5, ...] becomes [NaN, 0.5, ...]
                 try:
                     xa = np.array(x_raw[:min_len], dtype=float)
                     ya = np.array(y_raw[:min_len], dtype=float)
-                except: continue # Skip completely broken data
-                
-                # 3. CREATE MASK: Filter out NaNs and Infs from BOTH axes
-                # This effectively "skips" the blank lines at the start/end
+                except: continue
                 mask = np.isfinite(xa) & np.isfinite(ya)
-                
                 if not np.any(mask): continue
-                
-                # 4. Apply Mask
                 x_plot = xa[mask]
                 y_plot = ya[mask]
                 
                 if mode == 'log':
-                    # Log Y Logic
                     y_safe = np.abs(y_plot)
-                    y_safe[y_safe==0] = 1e-15 # Floor for log
-                    
-                    if log_x: # Log X and Log Y
+                    y_safe[y_safe==0] = 1e-15
+                    if log_x:
                         x_safe = np.abs(x_plot)
                         x_safe[x_safe==0] = 1e-15
                         ax.loglog(x_safe, y_safe, linewidth=1.2, color=colors[i])
-                    else: # Linear X and Log Y
+                    else:
                         ax.semilogy(x_plot, y_safe, linewidth=1.2, color=colors[i])
                 else:
-                    # Linear Y Logic
-                    if log_x: # Log X and Linear Y
+                    if log_x:
                         x_safe = np.abs(x_plot)
                         x_safe[x_safe==0] = 1e-15
                         ax.semilogx(x_safe, y_plot, linewidth=1.2, color=colors[i])
-                    else: # Linear X and Linear Y
+                    else:
                         ax.plot(x_plot, y_plot, linewidth=1.2, color=colors[i])
 
         ax1.set_title("1. Linear"); ax1.grid(True); draw_lines(ax1, 'linear'); ax1.set_xlabel(x_label); ax1.set_ylabel(y_label)
@@ -483,16 +749,59 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, 
         ax2.set_title("2. Scientific"); ax2.grid(True); draw_lines(ax2, 'linear'); ax2.set_xlabel(x_label); ax2.set_ylabel(y_label)
         try: ax2.yaxis.set_major_formatter(ScalarFormatter(useMathText=True)); ax2.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
         except: pass
-        
+
         ax3.set_title("3. Log Scale"); ax3.grid(True, which="both"); draw_lines(ax3, 'log'); ax3.set_xlabel(x_label); ax3.set_ylabel(f"|{y_label}|")
-        
+
         font_ieee = {'family': 'serif', 'size': 10}
         ax4.set_title("4. IEEE Style", fontdict=font_ieee); ax4.grid(True, linewidth=0.5, linestyle='--')
         draw_lines(ax4, 'linear'); ax4.set_xlabel(x_label, fontdict=font_ieee); ax4.set_ylabel(y_label, fontdict=font_ieee)
         if not log_x: format_axis(ax4)
-        
+
         sm = plt.cm.ScalarMappable(cmap=cm.jet, norm=plt.Normalize(vmin=min(sorted_keys), vmax=max(sorted_keys)))
         sm.set_array([])
         fig.colorbar(sm, ax=[ax1, ax2, ax3, ax4], shrink=0.9).set_label('Temperature (C)')
         
     except Exception as e: print(f"Plotting Error: {e}")
+
+def export_current_plot_to_tex(title, tex_file_path, img_dir_path):
+    """
+    Saves the current matplotlib figure to the given directory
+    and appends the LaTeX code to the target .tex file.
+    """
+    if not os.path.exists(img_dir_path):
+        os.makedirs(img_dir_path)
+
+    # 1. Safe Filename
+    safe_filename_str = title.replace(" ", "_").replace("(", "").replace(")", "").replace("*", "x").replace("/", "div")
+    img_filename = f"{safe_filename_str}.png"
+    abs_img_path = os.path.join(img_dir_path, img_filename)
+    
+    # 2. Save Figure
+    try:
+        plt.gcf().savefig(abs_img_path, dpi=300, bbox_inches='tight')
+    except Exception as e:
+        print(f"Error saving image {img_filename}: {e}")
+        return
+
+    # 3. Safe Caption
+    safe_caption = title.replace("_", r"\_") 
+    
+    # 4. Append LaTeX
+    rel_img_path = f"figures/{img_filename}"
+    
+    latex_content = f"""
+% Auto-generated plot for {title}
+\\begin{{figure}}[H]
+    \\centering
+    \\includegraphics[width=0.85\\textwidth]{{{rel_img_path}}}
+    \\caption{{{safe_caption}}}
+    \\label{{fig:{safe_filename_str}}}
+\\end{{figure}}
+"""
+    
+    try:
+        with open(tex_file_path, "a") as f:
+            f.write(latex_content)
+        print(f" -> Exported to TeX: '{title}'")
+    except Exception as e:
+        print(f"Error writing to .tex file: {e}")
