@@ -650,11 +650,18 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, 
         
     except Exception as e: print(f"Plotting Error: {e}")
 
-def export_current_plot_to_tex(title, tex_file_path, img_dir_path, write_to_file=True):
+def export_current_plot_to_tex(title, tex_file_path, img_dir_path, tex_relative_dir, write_to_file=True):
     """
     Saves the current matplotlib figure to the given directory.
     If write_to_file=True, it appends to the .tex file immediately.
     If False, it returns the latex string for later use.
+
+    Args:
+        title (str): Plot title (used for filename and caption).
+        tex_file_path (str): Path to the target .tex file.
+        img_dir_path (str): Absolute path where the image file will be saved.
+        tex_relative_dir (str): The directory prefix for the LaTeX \includegraphics command.
+        write_to_file (bool): Whether to write to file immediately or return string.
     """
     if not os.path.exists(img_dir_path):
         os.makedirs(img_dir_path)
@@ -675,7 +682,9 @@ def export_current_plot_to_tex(title, tex_file_path, img_dir_path, write_to_file
     safe_caption = title.replace("_", r"\_") 
     
     # 4. Generate LaTeX
-    rel_img_path = f"figures/{img_filename}"
+    # Join the user-provided relative directory with the filename
+    # We use os.path.join then replace backslashes to forward slashes for LaTeX compatibility
+    rel_img_path = os.path.join(tex_relative_dir, img_filename).replace(os.sep, '/')
     
     latex_content = f"""
 % Auto-generated plot for {title}
