@@ -12,6 +12,7 @@ from .core import (
     calculate_thermal_voltage,
     check_file_access,
     parse_simulation_file,
+    parse_simulation_file_tsv,
     export_vectors_and_scalars,
     calculate_centered_derivative,
     find_abs_min_or_max,
@@ -74,7 +75,7 @@ __all__ = [
     "K_BOLTZMANN", "Q_ELEMENTARY", "EPSILON_OX", "EPSILON_SI", "NI_300K",
     
     # Utilities
-    "calculate_thermal_voltage", "check_file_access", "parse_simulation_file",
+    "calculate_thermal_voltage", "check_file_access", "parse_simulation_file", "parse_simulation_file_tsv",
     "export_vectors_and_scalars", "load_scalar_map", "load_vector_map",
     "load_scalar_data_from_dir", "load_vector_data_from_dir",
     "calculate_centered_derivative", "find_abs_min_or_max", "load_text_file_by_column",
