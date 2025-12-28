@@ -126,7 +126,7 @@ def parse_simulation_file_tsv(input_file_path, output_directory, output_filename
     # 1. Check Input
     if not os.path.exists(input_file_path):
         print(f"Error: Input file not found at: {input_file_path}")
-        return
+        return False
 
     # 2. Check/Create Output Directory
     if not os.path.exists(output_directory):
@@ -135,29 +135,25 @@ def parse_simulation_file_tsv(input_file_path, output_directory, output_filename
             print(f"Created output directory: {output_directory}")
         except OSError as e:
             print(f"Error creating directory: {e}")
-            return
+            return False
 
     print(f"Processing: {input_file_path}")
 
     # 3. Determine which columns to keep based on the mapping
-    # Example Mapping: ["Vsb", "Id", "-", "Temperature"]
-    # indices_to_keep will be [0, 1, 3]
     indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
     
-    # Create the new header line based on the mapping names
+    # Create the new header line
     new_header_list = [col for col in column_mapping if col != "-"]
     new_header_str = "\t".join(new_header_list)
 
     # 4. Process the file
-    # We use a cache to remember values (like Temperature) that might be missing on jagged rows
+    # Cache remembers values for columns that are implicit in subsequent rows (jagged data)
     cached_values = {} 
     
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
             # Write the new header
             outfile.write(new_header_str + "\n")
-
-            data_start = False
             
             for line in infile:
                 parts = line.strip().split()
@@ -166,31 +162,29 @@ def parse_simulation_file_tsv(input_file_path, output_directory, output_filename
                 if not parts: 
                     continue
 
-                # Skip header lines inside the file (lines that don't start with a number)
+                # Skip header/text lines (lines that don't start with a number)
                 try:
                     float(parts[0])
                 except ValueError:
                     continue
 
-                # --- Handle "Jagged" Data (Stepped sweeps) ---
-                # If the line has 4 columns, it's a "Pivot" row (Voltage, Current, Bool, Temp)
-                # If the line has 2 columns, it's a "Data" row (Voltage, Current) -> Use cached Temp
+                # --- Handle "Jagged" Data ---
+                # Strategy:
+                # 1. Update the cache ONLY for the columns present in this specific line.
+                # 2. Build the full row by pulling from the cache for every single index 
+                #    in the mapping.
                 
-                current_row_values = []
-                
-                # Update cache with whatever data is present in this line
+                # Update cache with current line's data
                 for i, val in enumerate(parts):
                     cached_values[i] = val
                 
-                # Reconstruct the full row using the cache
-                # We assume the max number of columns is the length of the mapping
+                # Reconstruct the full row strictly from the cache
+                # If the current line is short (e.g., 2 cols), cached_values[2] and [3] 
+                # will retain their values from previous "long" rows.
+                # We do NOT let parts[0] fill index 1, etc.
                 full_row_reconstructed = []
                 for i in range(len(column_mapping)):
-                    # Get from current line if available, otherwise get from cache, else NaN
-                    if i < len(parts):
-                        val = parts[i]
-                    else:
-                        val = cached_values.get(i, "NaN")
+                    val = cached_values.get(i, "NaN")
                     full_row_reconstructed.append(val)
 
                 # --- Filter Columns based on Mapping ---
@@ -198,15 +192,15 @@ def parse_simulation_file_tsv(input_file_path, output_directory, output_filename
                 for idx in indices_to_keep:
                     final_output_row.append(full_row_reconstructed[idx])
 
-                # Write to file (Tab separated)
+                # Write to file
                 outfile.write("\t".join(final_output_row) + "\n")
 
         print(f"Success! Clean file saved to: {output_full_path}")
+        return True
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        sys.exit(1)
-
+        return False
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
     output_full_path = os.path.join(output_directory, output_filename)

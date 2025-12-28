@@ -66,7 +66,7 @@ from .core import (
     inject_plots_into_tex
 )
 
-__version__ = "1.19.0"
+__version__ = "1.20.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
