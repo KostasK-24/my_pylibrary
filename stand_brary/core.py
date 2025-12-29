@@ -204,94 +204,98 @@ def parse_simulation_file_tsv(input_file_path, output_directory, output_filename
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
     output_full_path = os.path.join(output_directory, output_filename)
-    if not check_file_access(input_file_path, 'r'): sys.exit(1)
+
+    if not os.path.exists(input_file_path):
+        print(f"Error: Input file does not exist: {input_file_path}")
+        sys.exit(1)
+    
     if not os.path.exists(output_directory):
         print(f"Error: Output directory does not exist: {output_directory}")
         sys.exit(1)
 
     print(f"Processing: {input_file_path}")
+
+    # --- Setup Formatting ---
     is_tsv = output_filename.lower().endswith('.tsv')
     is_csv = output_filename.lower().endswith('.csv')
-    separator = "\t" if is_tsv else "," if is_csv else ""
+    separator = "\t" if is_tsv else "," if is_csv else " "
     use_pretty_align = not (is_tsv or is_csv)
     col_width = 25
 
-    indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
-    new_header_list = [col for col in column_mapping if col != "-"]
-    
-    temp_raw_idx = -1
+    # --- identify the "Pivot" (Temperature) ---
+    temp_col_idx = -1
     for i, col in enumerate(column_mapping):
         if "temp" in col.lower():
-            temp_raw_idx = i
+            temp_col_idx = i
             break
             
-    left_indices = []
-    right_indices = []
-    has_pivot_in_output = False
-    for idx in indices_to_keep:
-        if temp_raw_idx != -1:
-            if idx < temp_raw_idx: left_indices.append(idx)
-            elif idx > temp_raw_idx: right_indices.append(idx)
-            else: has_pivot_in_output = True
-        else: left_indices.append(idx)
-
+    expected_width = len(column_mapping)
+    indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
+    
+    new_header_list = [col for col in column_mapping if col != "-"]
     if use_pretty_align:
         formatted_header_list = [f"{col:^{col_width}}" for col in new_header_list]
         new_header_str = "".join(formatted_header_list)
     else:
         new_header_str = separator.join(new_header_list)
 
-    cached_values = {}
-    full_width_detected = False
-    expected_full_width = len(column_mapping)
+    # --- Processing Loop ---
+    latched_temp_val = "NaN" 
 
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
             outfile.write(new_header_str + "\n")
-            for line_num, line in enumerate(infile):
+            
+            for line in infile:
                 parts = line.strip().split()
-                if not parts: continue
+                if not parts: break 
+
                 try: float(parts[0])
                 except ValueError: continue 
-                
-                if not full_width_detected:
-                    if len(parts) >= expected_full_width:
-                        full_width_detected = True
-                        for i, val in enumerate(parts): cached_values[i] = val
-                
+
                 current_width = len(parts)
                 final_row_values = []
-                is_full_line = (current_width >= expected_full_width) or (current_width > len(left_indices) + len(right_indices) + 1)
+                
+                is_full_line = (current_width >= expected_width)
 
                 if is_full_line:
-                    for i, val in enumerate(parts): cached_values[i] = val
+                    # Scenario A: Full Line -> Update Latch
                     for idx in indices_to_keep:
-                        if idx < len(parts): final_row_values.append(parts[idx])
-                        else: final_row_values.append("NaN")
+                        val = parts[idx]
+                        final_row_values.append(val)
+                        if idx == temp_col_idx:
+                            latched_temp_val = val
                 else:
-                    extracted_map = {}
-                    for i, map_idx in enumerate(left_indices):
-                        if i < len(parts): extracted_map[map_idx] = parts[i]
-                        else: extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
-                    num_right = len(right_indices)
-                    for i, map_idx in enumerate(right_indices):
-                        part_idx = -num_right + i
-                        try: extracted_map[map_idx] = parts[part_idx]
-                        except IndexError: extracted_map[map_idx] = cached_values.get(map_idx, "NaN")
-                    if has_pivot_in_output:
-                        extracted_map[temp_raw_idx] = cached_values.get(temp_raw_idx, "NaN")
+                    # Scenario B: Short Line -> Use Latch & Shift
+                    shift_amount = expected_width - current_width
+                    
                     for idx in indices_to_keep:
-                        final_row_values.append(extracted_map.get(idx, "NaN"))
+                        if idx < temp_col_idx:
+                            if idx < len(parts):
+                                final_row_values.append(parts[idx])
+                            else:
+                                final_row_values.append("NaN")
+                        elif idx == temp_col_idx:
+                            final_row_values.append(latched_temp_val)
+                        elif idx > temp_col_idx:
+                            shifted_idx = idx - shift_amount
+                            if 0 <= shifted_idx < len(parts):
+                                final_row_values.append(parts[shifted_idx])
+                            else:
+                                final_row_values.append("NaN")
 
                 if use_pretty_align:
                     formatted_data = [f"{val:^{col_width}}" for val in final_row_values]
                     line_to_write = "".join(formatted_data)
                 else:
                     line_to_write = separator.join([str(x) for x in final_row_values])
+                
                 outfile.write(line_to_write + "\n")
+
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         sys.exit(1)
+
     print(f"Success! Clean file saved to: {output_full_path}")
 
 def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='\t'):
