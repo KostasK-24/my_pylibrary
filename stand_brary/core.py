@@ -1,5 +1,5 @@
 """
-Stand Brary Library - Core Physics & Utility Functions (v1.19.0)
+Stand Brary Library - Core Physics & Utility Functions (v1.23.0)
 
 This module provides a comprehensive suite of tools for semiconductor parameter 
 extraction (EKV Model), numerical analysis, file handling, plotting, LaTeX reporting,
@@ -747,15 +747,25 @@ def _dim_tool_ensure_list(variable):
     if isinstance(variable, (list, tuple)): return variable
     return [variable]
 
-def Widths_calculation(Id, L_fixed, Io_input, mos_type="nmos"):
+def Widths_calculation(output_path, Id, L_fixed, Io_input, mos_type="nmos"):
     """
     Calculates Widths for standard ICs and prints/saves results.
     Args:
+        output_path (str): Directory path where the .tsv file will be saved.
         Id (float): Drain Current
         L_fixed (float): Fixed Length
         Io_input (float or list): Specific Current Io (single val or list)
         mos_type (str): 'nmos' or 'pmos' (used for filename)
     """
+    # Check/Create Directory
+    if not os.path.exists(output_path):
+        try:
+            os.makedirs(output_path)
+            print(f"Directory created: {output_path}")
+        except OSError as e:
+            print(f"Error creating directory {output_path}: {e}")
+            return
+
     Io_list = _dim_tool_ensure_list(Io_input)
     ic_groups = _dim_tool_get_ic_groups()
 
@@ -763,17 +773,22 @@ def Widths_calculation(Id, L_fixed, Io_input, mos_type="nmos"):
         L_str = f"{L_fixed*1e6:.2f}"
         Io_str = f"{Io:.2e}"
         filename = f"Widths_calculated_L{L_str}_Io_{mos_type}_{Io_str}.tsv"
-        try: f = open(filename, "w")
+        full_path = os.path.join(output_path, filename)
+        
+        try: f = open(full_path, "w")
         except IOError as e:
-            print(f"Error opening file {filename}: {e}")
+            print(f"Error opening file {full_path}: {e}")
             continue
+            
         term_header = f"{'IC':<10} | {'Id (A)':<12} | {'L (um)':<10} | {'Calculated W (um)':<20}"
         file_header = "IC\tId(A)\tL(um)\tCalculated_W(um)\n"
         sep_row = "-" * 70
+        
         print("\n" + "="*70)
         print(f"CALCULATING WIDTHS | Io = {Io:.2e} | Type = {mos_type}")
-        print(f"Saving to: {filename}")
+        print(f"Saving to: {full_path}")
         print("="*70)
+        
         f.write(file_header)
         for group_name, ic_values in ic_groups:
             print("\n" + "-"*70)
@@ -795,15 +810,25 @@ def Widths_calculation(Id, L_fixed, Io_input, mos_type="nmos"):
         f.close()
         print(f"\n[Done] Results saved to {filename}")
 
-def Lengths_calculation(Id, W_fixed, Io_input, mos_type="nmos"):
+def Lengths_calculation(output_path, Id, W_fixed, Io_input, mos_type="nmos"):
     """
     Calculates Lengths for standard ICs and prints/saves results.
     Args:
+        output_path (str): Directory path where the .tsv file will be saved.
         Id (float): Drain Current
         W_fixed (float): Fixed Width
         Io_input (float or list): Specific Current Io (single val or list)
         mos_type (str): 'nmos' or 'pmos' (used for filename)
     """
+    # Check/Create Directory
+    if not os.path.exists(output_path):
+        try:
+            os.makedirs(output_path)
+            print(f"Directory created: {output_path}")
+        except OSError as e:
+            print(f"Error creating directory {output_path}: {e}")
+            return
+
     Io_list = _dim_tool_ensure_list(Io_input)
     ic_groups = _dim_tool_get_ic_groups()
 
@@ -811,17 +836,22 @@ def Lengths_calculation(Id, W_fixed, Io_input, mos_type="nmos"):
         W_str = f"{W_fixed*1e6:.2f}"
         Io_str = f"{Io:.2e}"
         filename = f"Lengths_calculated_W{W_str}_Io_{mos_type}_{Io_str}.tsv"
-        try: f = open(filename, "w")
+        full_path = os.path.join(output_path, filename)
+        
+        try: f = open(full_path, "w")
         except IOError as e:
-            print(f"Error opening file {filename}: {e}")
+            print(f"Error opening file {full_path}: {e}")
             continue
+            
         term_header = f"{'IC':<10} | {'Id (A)':<12} | {'W (um)':<10} | {'Calculated L (um)':<20}"
         file_header = "IC\tId(A)\tW(um)\tCalculated_L(um)\n"
         sep_row = "-" * 70
+        
         print("\n" + "="*70)
         print(f"CALCULATING LENGTHS | Io = {Io:.2e} | Type = {mos_type}")
-        print(f"Saving to: {filename}")
+        print(f"Saving to: {full_path}")
         print("="*70)
+        
         f.write(file_header)
         for group_name, ic_values in ic_groups:
             print("\n" + "-"*70)

@@ -70,7 +70,7 @@ from .core import (
     Lengths_calculation
 )
 
-__version__ = "1.22.0"
+__version__ = "1.23.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
