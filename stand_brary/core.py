@@ -1,8 +1,9 @@
 """
-Stand Brary Library - Core Physics & Utility Functions (v1.18.0)
+Stand Brary Library - Core Physics & Utility Functions (v1.19.0)
 
 This module provides a comprehensive suite of tools for semiconductor parameter 
-extraction (EKV Model), numerical analysis, file handling, plotting, and LaTeX reporting.
+extraction (EKV Model), numerical analysis, file handling, plotting, LaTeX reporting,
+and MOS dimensioning.
 
 ===============================================================================
                                  CONTENT INDEX
@@ -49,7 +50,11 @@ extraction (EKV Model), numerical analysis, file handling, plotting, and LaTeX r
 8. PLOTTING & REPORTING
    - plot_four_styles, plot_family_of_curves
    - export_current_plot_to_tex
-   - inject_plots_into_tex (NEW: Targeted insertion)
+   - inject_plots_into_tex
+
+13. DIMENSIONING TOOLS (NEW)
+    - Widths_calculation (Calculates W for specific ICs, saves .tsv)
+    - Lengths_calculation (Calculates L for specific ICs, saves .tsv)
 ===============================================================================
 """
 
@@ -117,185 +122,98 @@ def find_col_index(headers, keywords, exclude=None):
     return -1
 
 def parse_simulation_file_tsv(input_file_path, output_directory, output_filename, column_mapping):
-    """
-    Reads a simulation file, handles jagged rows (where temp/bool are implied),
-    filters columns based on mapping, and saves to a new TSV.
-    """
     output_full_path = os.path.join(output_directory, output_filename)
-
-    # 1. Check Input
     if not os.path.exists(input_file_path):
         print(f"Error: Input file not found at: {input_file_path}")
         return False
-
-    # 2. Check/Create Output Directory
     if not os.path.exists(output_directory):
-        try:
-            os.makedirs(output_directory)
-            print(f"Created output directory: {output_directory}")
+        try: os.makedirs(output_directory)
         except OSError as e:
             print(f"Error creating directory: {e}")
             return False
-
     print(f"Processing: {input_file_path}")
-
-    # 3. Determine which columns to keep based on the mapping
     indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
-    
-    # Create the new header line
     new_header_list = [col for col in column_mapping if col != "-"]
     new_header_str = "\t".join(new_header_list)
-
-    # 4. Process the file
-    # Cache remembers values for columns that are implicit in subsequent rows (jagged data)
     cached_values = {} 
-    
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
-            # Write the new header
             outfile.write(new_header_str + "\n")
-            
             for line in infile:
                 parts = line.strip().split()
-                
-                # Skip empty lines
-                if not parts: 
-                    continue
-
-                # Skip header/text lines (lines that don't start with a number)
-                try:
-                    float(parts[0])
-                except ValueError:
-                    continue
-
-                # --- Handle "Jagged" Data ---
-                # Strategy:
-                # 1. Update the cache ONLY for the columns present in this specific line.
-                # 2. Build the full row by pulling from the cache for every single index 
-                #    in the mapping.
-                
-                # Update cache with current line's data
-                for i, val in enumerate(parts):
-                    cached_values[i] = val
-                
-                # Reconstruct the full row strictly from the cache
-                # If the current line is short (e.g., 2 cols), cached_values[2] and [3] 
-                # will retain their values from previous "long" rows.
-                # We do NOT let parts[0] fill index 1, etc.
+                if not parts: continue
+                try: float(parts[0])
+                except ValueError: continue
+                for i, val in enumerate(parts): cached_values[i] = val
                 full_row_reconstructed = []
                 for i in range(len(column_mapping)):
                     val = cached_values.get(i, "NaN")
                     full_row_reconstructed.append(val)
-
-                # --- Filter Columns based on Mapping ---
                 final_output_row = []
-                for idx in indices_to_keep:
-                    final_output_row.append(full_row_reconstructed[idx])
-
-                # Write to file
+                for idx in indices_to_keep: final_output_row.append(full_row_reconstructed[idx])
                 outfile.write("\t".join(final_output_row) + "\n")
-
         print(f"Success! Clean file saved to: {output_full_path}")
         return True
-
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return False
 
 def parse_simulation_file(input_file_path, output_directory, output_filename, column_mapping):
     output_full_path = os.path.join(output_directory, output_filename)
-
-    if not os.path.exists(input_file_path):
-        print(f"Error: Input file does not exist: {input_file_path}")
-        sys.exit(1)
-    
-    if not os.path.exists(output_directory):
-        print(f"Error: Output directory does not exist: {output_directory}")
-        sys.exit(1)
-
+    if not os.path.exists(input_file_path): sys.exit(1)
+    if not os.path.exists(output_directory): sys.exit(1)
     print(f"Processing: {input_file_path}")
-
-    # --- Setup Formatting ---
     is_tsv = output_filename.lower().endswith('.tsv')
     is_csv = output_filename.lower().endswith('.csv')
     separator = "\t" if is_tsv else "," if is_csv else " "
     use_pretty_align = not (is_tsv or is_csv)
     col_width = 25
-
-    # --- identify the "Pivot" (Temperature) ---
     temp_col_idx = -1
     for i, col in enumerate(column_mapping):
         if "temp" in col.lower():
             temp_col_idx = i
             break
-            
     expected_width = len(column_mapping)
     indices_to_keep = [i for i, col in enumerate(column_mapping) if col != "-"]
-    
     new_header_list = [col for col in column_mapping if col != "-"]
     if use_pretty_align:
         formatted_header_list = [f"{col:^{col_width}}" for col in new_header_list]
         new_header_str = "".join(formatted_header_list)
-    else:
-        new_header_str = separator.join(new_header_list)
-
-    # --- Processing Loop ---
+    else: new_header_str = separator.join(new_header_list)
     latched_temp_val = "NaN" 
-
     try:
         with open(input_file_path, 'r') as infile, open(output_full_path, 'w') as outfile:
             outfile.write(new_header_str + "\n")
-            
             for line in infile:
                 parts = line.strip().split()
                 if not parts: break 
-
                 try: float(parts[0])
                 except ValueError: continue 
-
                 current_width = len(parts)
                 final_row_values = []
-                
                 is_full_line = (current_width >= expected_width)
-
                 if is_full_line:
-                    # Scenario A: Full Line -> Update Latch
                     for idx in indices_to_keep:
                         val = parts[idx]
                         final_row_values.append(val)
-                        if idx == temp_col_idx:
-                            latched_temp_val = val
+                        if idx == temp_col_idx: latched_temp_val = val
                 else:
-                    # Scenario B: Short Line -> Use Latch & Shift
                     shift_amount = expected_width - current_width
-                    
                     for idx in indices_to_keep:
                         if idx < temp_col_idx:
-                            if idx < len(parts):
-                                final_row_values.append(parts[idx])
-                            else:
-                                final_row_values.append("NaN")
-                        elif idx == temp_col_idx:
-                            final_row_values.append(latched_temp_val)
+                            if idx < len(parts): final_row_values.append(parts[idx])
+                            else: final_row_values.append("NaN")
+                        elif idx == temp_col_idx: final_row_values.append(latched_temp_val)
                         elif idx > temp_col_idx:
                             shifted_idx = idx - shift_amount
-                            if 0 <= shifted_idx < len(parts):
-                                final_row_values.append(parts[shifted_idx])
-                            else:
-                                final_row_values.append("NaN")
-
+                            if 0 <= shifted_idx < len(parts): final_row_values.append(parts[shifted_idx])
+                            else: final_row_values.append("NaN")
                 if use_pretty_align:
                     formatted_data = [f"{val:^{col_width}}" for val in final_row_values]
                     line_to_write = "".join(formatted_data)
-                else:
-                    line_to_write = separator.join([str(x) for x in final_row_values])
-                
+                else: line_to_write = separator.join([str(x) for x in final_row_values])
                 outfile.write(line_to_write + "\n")
-
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        sys.exit(1)
-
+    except Exception as e: sys.exit(1)
     print(f"Success! Clean file saved to: {output_full_path}")
 
 def export_vectors_and_scalars(filepath, vectors_dict, scalars_dict, delimiter='\t'):
@@ -741,41 +659,16 @@ def plot_family_of_curves(data_map, x_key, y_key, x_label, y_label, title_base, 
     except Exception as e: print(f"Plotting Error: {e}")
 
 def export_current_plot_to_tex(title, tex_file_path, img_dir_path, tex_relative_dir, write_to_file=True):
-    """
-    Saves the current matplotlib figure to the given directory.
-    If write_to_file=True, it appends to the .tex file immediately.
-    If False, it returns the latex string for later use.
-
-    Args:
-        title (str): Plot title (used for filename and caption).
-        tex_file_path (str): Path to the target .tex file.
-        img_dir_path (str): Absolute path where the image file will be saved.
-        tex_relative_dir (str): The directory prefix for the LaTeX \includegraphics command.
-        write_to_file (bool): Whether to write to file immediately or return string.
-    """
-    if not os.path.exists(img_dir_path):
-        os.makedirs(img_dir_path)
-
-    # 1. Safe Filename
+    if not os.path.exists(img_dir_path): os.makedirs(img_dir_path)
     safe_filename_str = title.replace(" ", "_").replace("(", "").replace(")", "").replace("*", "x").replace("/", "div")
     img_filename = f"{safe_filename_str}.png"
     abs_img_path = os.path.join(img_dir_path, img_filename)
-    
-    # 2. Save Figure
-    try:
-        plt.gcf().savefig(abs_img_path, dpi=300, bbox_inches='tight')
+    try: plt.gcf().savefig(abs_img_path, dpi=300, bbox_inches='tight')
     except Exception as e:
         print(f"Error saving image {img_filename}: {e}")
         return ""
-
-    # 3. Safe Caption
     safe_caption = title.replace("_", r"\_") 
-    
-    # 4. Generate LaTeX
-    # Join the user-provided relative directory with the filename
-    # We use os.path.join then replace backslashes to forward slashes for LaTeX compatibility
     rel_img_path = os.path.join(tex_relative_dir, img_filename).replace(os.sep, '/')
-    
     latex_content = f"""
 % Auto-generated plot for {title}
 \\begin{{figure}}[H]
@@ -785,72 +678,167 @@ def export_current_plot_to_tex(title, tex_file_path, img_dir_path, tex_relative_
     \\label{{fig:{safe_filename_str}}}
 \\end{{figure}}
 """
-    
     if write_to_file:
         try:
-            with open(tex_file_path, "a") as f:
-                f.write(latex_content)
+            with open(tex_file_path, "a") as f: f.write(latex_content)
             print(f" -> Exported to TeX: '{title}'")
-        except Exception as e:
-            print(f"Error writing to .tex file: {e}")
+        except Exception as e: print(f"Error writing to .tex file: {e}")
         return ""
-    else:
-        print(f" -> Generated LaTeX for: '{title}'")
-        return latex_content
+    else: return latex_content
 
 def inject_plots_into_tex(tex_path, target_section_name, new_subsection_name, content_to_inject):
-    """
-    Reads the .tex file, finds \section{target_section_name},
-    navigates to the end of that section (before the next section or end doc),
-    and inserts the new subsection and plots there.
-    """
-    if not os.path.exists(tex_path):
-        print(f"Error: LaTeX file not found at {tex_path}")
-        return
-
-    with open(tex_path, 'r') as f:
-        lines = f.readlines()
-
-    # 1. Find the Target Section
+    if not os.path.exists(tex_path): return
+    with open(tex_path, 'r') as f: lines = f.readlines()
     start_index = -1
     target_str = f"\\section{{{target_section_name}}}"
-    
     for i, line in enumerate(lines):
         if target_str in line:
             start_index = i
             break
-            
     if start_index == -1:
-        print(f"Warning: Section '{target_section_name}' not found! Appending to end of file instead.")
         with open(tex_path, 'a') as f:
             f.write(f"\n\\section{{{target_section_name}}}\n")
-            if new_subsection_name:
-                f.write(f"\\subsection{{{new_subsection_name}}}\n")
+            if new_subsection_name: f.write(f"\\subsection{{{new_subsection_name}}}\n")
             f.write(content_to_inject)
         return
-
-    # 2. Find the insertion point (End of that section)
-    # The end is either the next \section, \chapter, \end{document}, or EOF
-    insertion_index = len(lines) # Default to end
-    
+    insertion_index = len(lines)
     for i in range(start_index + 1, len(lines)):
         line = lines[i].strip()
         if line.startswith(r"\section") or line.startswith(r"\chapter") or line.startswith(r"\end{document}"):
             insertion_index = i
             break
-            
-    # 3. Construct the new content block
     injection_block = []
-    if new_subsection_name:
-        injection_block.append(f"\n\\subsection{{{new_subsection_name}}}\n")
+    if new_subsection_name: injection_block.append(f"\n\\subsection{{{new_subsection_name}}}\n")
     injection_block.append(content_to_inject)
-    
-    # 4. Insert and Write Back
     new_lines = lines[:insertion_index] + injection_block + lines[insertion_index:]
-    
     try:
-        with open(tex_path, 'w') as f:
-            f.writelines(new_lines)
-        print(f" -> Successfully inserted plots into Section '{target_section_name}'")
-    except Exception as e:
-        print(f"Error writing to .tex file: {e}")
+        with open(tex_path, 'w') as f: f.writelines(new_lines)
+    except Exception as e: print(f"Error writing to .tex file: {e}")
+
+# --- 13. DIMENSIONING TOOLS ---
+
+def _dim_tool_float_range(start, end, step):
+    values = []
+    current = start
+    while current <= (end + 1e-9):
+        values.append(current)
+        current += step
+    return values
+
+def _dim_tool_get_ic_groups():
+    IC_WI = _dim_tool_float_range(0.001, 0.1, 0.005)
+    IC_MI = _dim_tool_float_range(0.10001, 10.0, 0.45)
+    IC_SI = _dim_tool_float_range(10.01, 20.01, 1)
+    return [("Weak Inversion (WI)", IC_WI), ("Moderate Inversion (MI)", IC_MI), ("Strong Inversion (SI)", IC_SI)]
+
+def _dim_tool_calculate_W_value(Id, L, Io, IC):
+    if Io == 0 or IC == 0: return None
+    W = (Id * L) / (Io * IC)
+    if W <= 0.13e-6: return None
+    return W
+
+def _dim_tool_calculate_L_value(Id, W, Io, IC):
+    if Id == 0: return None
+    L = (Io * IC * W) / Id
+    if L <= 0.13e-6 or L >= 10e-6: return None
+    return L
+
+def _dim_tool_ensure_list(variable):
+    if isinstance(variable, (list, tuple)): return variable
+    return [variable]
+
+def Widths_calculation(Id, L_fixed, Io_input, mos_type="nmos"):
+    """
+    Calculates Widths for standard ICs and prints/saves results.
+    Args:
+        Id (float): Drain Current
+        L_fixed (float): Fixed Length
+        Io_input (float or list): Specific Current Io (single val or list)
+        mos_type (str): 'nmos' or 'pmos' (used for filename)
+    """
+    Io_list = _dim_tool_ensure_list(Io_input)
+    ic_groups = _dim_tool_get_ic_groups()
+
+    for Io in Io_list:
+        L_str = f"{L_fixed*1e6:.2f}"
+        Io_str = f"{Io:.2e}"
+        filename = f"Widths_calculated_L{L_str}_Io_{mos_type}_{Io_str}.tsv"
+        try: f = open(filename, "w")
+        except IOError as e:
+            print(f"Error opening file {filename}: {e}")
+            continue
+        term_header = f"{'IC':<10} | {'Id (A)':<12} | {'L (um)':<10} | {'Calculated W (um)':<20}"
+        file_header = "IC\tId(A)\tL(um)\tCalculated_W(um)\n"
+        sep_row = "-" * 70
+        print("\n" + "="*70)
+        print(f"CALCULATING WIDTHS | Io = {Io:.2e} | Type = {mos_type}")
+        print(f"Saving to: {filename}")
+        print("="*70)
+        f.write(file_header)
+        for group_name, ic_values in ic_groups:
+            print("\n" + "-"*70)
+            print(f" >>> {group_name}")
+            print(sep_row)
+            print(term_header)
+            print(sep_row)
+            for val in ic_values:
+                W_result = _dim_tool_calculate_W_value(Id, L_fixed, Io, val)
+                L_um_disp = f"{L_fixed * 1e6:.2f}"
+                if W_result is None:
+                    W_disp_term = "-"
+                    W_disp_file = "-"
+                else:
+                    W_disp_term = f"{W_result * 1e6:.4f}"
+                    W_disp_file = f"{W_result * 1e6:.6f}"
+                print(f"{val:<10.4f} | {Id:<12.2e} | {L_um_disp:<10} | {W_disp_term:<20}")
+                f.write(f"{val:.4f}\t{Id:.2e}\t{L_um_disp}\t{W_disp_file}\n")
+        f.close()
+        print(f"\n[Done] Results saved to {filename}")
+
+def Lengths_calculation(Id, W_fixed, Io_input, mos_type="nmos"):
+    """
+    Calculates Lengths for standard ICs and prints/saves results.
+    Args:
+        Id (float): Drain Current
+        W_fixed (float): Fixed Width
+        Io_input (float or list): Specific Current Io (single val or list)
+        mos_type (str): 'nmos' or 'pmos' (used for filename)
+    """
+    Io_list = _dim_tool_ensure_list(Io_input)
+    ic_groups = _dim_tool_get_ic_groups()
+
+    for Io in Io_list:
+        W_str = f"{W_fixed*1e6:.2f}"
+        Io_str = f"{Io:.2e}"
+        filename = f"Lengths_calculated_W{W_str}_Io_{mos_type}_{Io_str}.tsv"
+        try: f = open(filename, "w")
+        except IOError as e:
+            print(f"Error opening file {filename}: {e}")
+            continue
+        term_header = f"{'IC':<10} | {'Id (A)':<12} | {'W (um)':<10} | {'Calculated L (um)':<20}"
+        file_header = "IC\tId(A)\tW(um)\tCalculated_L(um)\n"
+        sep_row = "-" * 70
+        print("\n" + "="*70)
+        print(f"CALCULATING LENGTHS | Io = {Io:.2e} | Type = {mos_type}")
+        print(f"Saving to: {filename}")
+        print("="*70)
+        f.write(file_header)
+        for group_name, ic_values in ic_groups:
+            print("\n" + "-"*70)
+            print(f" >>> {group_name}")
+            print(sep_row)
+            print(term_header)
+            print(sep_row)
+            for val in ic_values:
+                L_result = _dim_tool_calculate_L_value(Id, W_fixed, Io, val)
+                W_um_disp = f"{W_fixed * 1e6:.2f}"
+                if L_result is None:
+                    L_disp_term = "-"
+                    L_disp_file = "-"
+                else:
+                    L_disp_term = f"{L_result * 1e6:.4f}"
+                    L_disp_file = f"{L_result * 1e6:.6f}"
+                print(f"{val:<10.4f} | {Id:<12.2e} | {W_um_disp:<10} | {L_disp_term:<20}")
+                f.write(f"{val:.4f}\t{Id:.2e}\t{W_um_disp}\t{L_disp_file}\n")
+        f.close()
+        print(f"\n[Done] Results saved to {filename}")
