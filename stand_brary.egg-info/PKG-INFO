@@ -1,7 +1,7 @@
 Metadata-Version: 2.1
 Name: stand-brary
-Version: 1.23.0
-Summary: Semiconductor parameter extraction tools, physics formulas, and data utilities.
+Version: 1.24.0
+Summary: Semiconductor parameter extraction tools, physics formulas, data utilities, and MOS dimensioning.
 Author: Kostas
 Author-email: gkaralis@tuc.gr
 Classifier: Development Status :: 3 - Alpha
