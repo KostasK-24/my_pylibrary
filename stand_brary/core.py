@@ -1,9 +1,9 @@
 """
-Stand Brary Library - Core Physics & Utility Functions (v1.23.0)
+Stand Brary Library - Core Physics & Utility Functions (v1.24.0)
 
 This module provides a comprehensive suite of tools for semiconductor parameter 
 extraction (EKV Model), numerical analysis, file handling, plotting, LaTeX reporting,
-and MOS dimensioning.
+and MOS dimensioning/modeling.
 
 ===============================================================================
                                  CONTENT INDEX
@@ -52,9 +52,9 @@ and MOS dimensioning.
    - export_current_plot_to_tex
    - inject_plots_into_tex
 
-13. DIMENSIONING TOOLS (NEW)
-    - Widths_calculation (Calculates W for specific ICs, saves .tsv)
-    - Lengths_calculation (Calculates L for specific ICs, saves .tsv)
+13. DIMENSIONING & MODELING TOOLS (NEW)
+    - Widths_calculation (Calculates W for specific ICs/Ids, saves .tsv)
+    - Id_Temperature_Modeling (Generates Id vs Temp models for specific W/IC)
 ===============================================================================
 """
 
@@ -717,7 +717,7 @@ def inject_plots_into_tex(tex_path, target_section_name, new_subsection_name, co
 
 # --- 13. DIMENSIONING TOOLS ---
 
-def _dim_tool_float_range(start, end, step):
+def dim_tool_float_range(start, end, step):
     values = []
     current = start
     while current <= (end + 1e-9):
@@ -725,34 +725,36 @@ def _dim_tool_float_range(start, end, step):
         current += step
     return values
 
-def _dim_tool_get_ic_groups():
-    IC_WI = _dim_tool_float_range(0.001, 0.1, 0.005)
-    IC_MI = _dim_tool_float_range(0.10001, 10.0, 0.45)
-    IC_SI = _dim_tool_float_range(10.01, 20.01, 1)
+def dim_tool_get_ic_groups():
+    # Note: I kept your specific ranges
+    IC_WI = dim_tool_float_range(0.001, 0.1, 0.005)
+    IC_MI = dim_tool_float_range(0.10001, 10.0, 0.45)
+    IC_SI = dim_tool_float_range(10.001, 20.001, 0.5)
     return [("Weak Inversion (WI)", IC_WI), ("Moderate Inversion (MI)", IC_MI), ("Strong Inversion (SI)", IC_SI)]
 
-def _dim_tool_calculate_W_value(Id, L, Io, IC):
+def dim_tool_calculate_W_value(Id, L, Io, IC):
     if Io == 0 or IC == 0: return None
     W = (Id * L) / (Io * IC)
     if W <= 0.13e-6: return None
     return W
 
-def _dim_tool_calculate_L_value(Id, W, Io, IC):
-    if Id == 0: return None
-    L = (Io * IC * W) / Id
-    if L <= 0.13e-6 or L >= 10e-6: return None
-    return L
-
-def _dim_tool_ensure_list(variable):
+def dim_tool_ensure_list(variable):
     if isinstance(variable, (list, tuple)): return variable
     return [variable]
 
-def Widths_calculation(output_path, Id, L_fixed, Io_input, mos_type="nmos"):
+def dim_tool_calculate_Id_model(W, L, Io, IC):
+    """
+    Calculates Id based on the dim_tool logic: Id = (Io * IC * W) / L
+    """
+    if L == 0: return 0
+    return (Io * IC * W) / L
+
+def Widths_calculation(output_path, Id_input, L_fixed, Io_input, mos_type):
     """
     Calculates Widths for standard ICs and prints/saves results.
     Args:
         output_path (str): Directory path where the .tsv file will be saved.
-        Id (float): Drain Current
+        Id_input (float or list): Drain Current (single val or list)
         L_fixed (float): Fixed Length
         Io_input (float or list): Specific Current Io (single val or list)
         mos_type (str): 'nmos' or 'pmos' (used for filename)
@@ -766,109 +768,163 @@ def Widths_calculation(output_path, Id, L_fixed, Io_input, mos_type="nmos"):
             print(f"Error creating directory {output_path}: {e}")
             return
 
-    Io_list = _dim_tool_ensure_list(Io_input)
-    ic_groups = _dim_tool_get_ic_groups()
+    # 1. Ensure both inputs are lists
+    Io_list = dim_tool_ensure_list(Io_input)
+    Id_list = dim_tool_ensure_list(Id_input)
+    
+    ic_groups = dim_tool_get_ic_groups()
 
+    # 2. Outer Loop: Iterate through Io (Technology/Process parameters)
     for Io in Io_list:
-        L_str = f"{L_fixed*1e6:.2f}"
-        Io_str = f"{Io:.2e}"
-        filename = f"Widths_calculated_L{L_str}_Io_{mos_type}_{Io_str}.tsv"
-        full_path = os.path.join(output_path, filename)
         
-        try: f = open(full_path, "w")
-        except IOError as e:
-            print(f"Error opening file {full_path}: {e}")
-            continue
+        # 3. Inner Loop: Iterate through Id (Design specs)
+        for Id in Id_list:
             
-        term_header = f"{'IC':<10} | {'Id (A)':<12} | {'L (um)':<10} | {'Calculated W (um)':<20}"
-        file_header = "IC\tId(A)\tL(um)\tCalculated_W(um)\n"
-        sep_row = "-" * 70
-        
-        print("\n" + "="*70)
-        print(f"CALCULATING WIDTHS | Io = {Io:.2e} | Type = {mos_type}")
-        print(f"Saving to: {full_path}")
-        print("="*70)
-        
-        f.write(file_header)
-        for group_name, ic_values in ic_groups:
-            print("\n" + "-"*70)
-            print(f" >>> {group_name}")
-            print(sep_row)
-            print(term_header)
-            print(sep_row)
-            for val in ic_values:
-                W_result = _dim_tool_calculate_W_value(Id, L_fixed, Io, val)
-                L_um_disp = f"{L_fixed * 1e6:.2f}"
-                if W_result is None:
-                    W_disp_term = "-"
-                    W_disp_file = "-"
-                else:
-                    W_disp_term = f"{W_result * 1e6:.4f}"
-                    W_disp_file = f"{W_result * 1e6:.6f}"
-                print(f"{val:<10.4f} | {Id:<12.2e} | {L_um_disp:<10} | {W_disp_term:<20}")
-                f.write(f"{val:.4f}\t{Id:.2e}\t{L_um_disp}\t{W_disp_file}\n")
-        f.close()
-        print(f"\n[Done] Results saved to {filename}")
+            # Prepare Strings for Filename
+            L_str = f"{L_fixed*1e6:.2f}"
+            Io_str = f"{Io:.2e}"
+            Id_str = f"{Id:.2e}" # Added Id to filename string
+            
+            # Unique filename for this specific combination
+            filename = f"Widths_calculated_L{L_str}_Io_{mos_type}_{Io_str}_Id_{Id_str}.tsv"
+            full_path = os.path.join(output_path, filename)
+            
+            try: 
+                f = open(full_path, "w")
+            except IOError as e:
+                print(f"Error opening file {full_path}: {e}")
+                continue
+                
+            term_header = f"{'IC':<10} | {'Id (A)':<12} | {'L (um)':<10} | {'Calculated W (um)':<20}"
+            file_header = "IC\tId(A)\tL(um)\tCalculated_W(um)\n"
+            sep_row = "-" * 70
+            
+            print("\n" + "="*70)
+            # Updated Print info to show current Id being processed
+            print(f"CALCULATING WIDTHS | Io = {Io:.2e} | Id = {Id:.2e} | Type = {mos_type}")
+            print(f"Saving to: {full_path}")
+            print("="*70)
+            
+            f.write(file_header)
+            
+            # Sweep through IC regions
+            for group_name, ic_values in ic_groups:
+                print("\n" + "-"*70)
+                print(f" >>> {group_name}")
+                print(sep_row)
+                print(term_header)
+                print(sep_row)
+                
+                for val in ic_values:
+                    # Pass the current 'Id' from the loop
+                    W_result = dim_tool_calculate_W_value(Id, L_fixed, Io, val)
+                    
+                    L_um_disp = f"{L_fixed * 1e6:.2f}"
+                    
+                    if W_result is None:
+                        W_disp_term = "-"
+                        W_disp_file = "-"
+                    else:
+                        W_disp_term = f"{W_result * 1e6:.4f}"
+                        W_disp_file = f"{W_result * 1e6:.6f}"
+                    
+                    print(f"{val:<10.4f} | {Id:<12.2e} | {L_um_disp:<10} | {W_disp_term:<20}")
+                    f.write(f"{val:.4f}\t{Id:.2e}\t{L_um_disp}\t{W_disp_file}\n")
+            
+            f.close()
+            print(f"\n[Done] Results saved to {filename}")
 
-def Lengths_calculation(output_path, Id, W_fixed, Io_input, mos_type="nmos"):
+def Id_Temperature_Modeling(input_path, output_path, Io_list, T_list, mos_type):
     """
-    Calculates Lengths for standard ICs and prints/saves results.
+    Reads previously generated 'Widths_calculated' files, extracts the W and IC,
+    and calculates Id vectors for a range of Temperatures (and corresponding Io values).
+    
     Args:
-        output_path (str): Directory path where the .tsv file will be saved.
-        Id (float): Drain Current
-        W_fixed (float): Fixed Width
-        Io_input (float or list): Specific Current Io (single val or list)
-        mos_type (str): 'nmos' or 'pmos' (used for filename)
+        input_path (str): Directory where the Widths .tsv files are located.
+        output_path (str): Directory where the new Model files will be saved.
+        Io_list (list): List of Io values (must correspond 1-to-1 with T_list).
+        T_list (list): List of Temperature values.
+        mos_type (str): 'nmos' or 'pmos' to filter files.
     """
-    # Check/Create Directory
+    
+    # 1. Validation
+    if len(Io_list) != len(T_list):
+        print(f"[Error] Length mismatch: Io_list has {len(Io_list)} items, T_list has {len(T_list)} items.")
+        return
+    
     if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
+    # 2. Find compatible files in input_path
+    try:
+        files = [f for f in os.listdir(input_path) 
+                 if f.startswith("Widths_calculated") and f.endswith(".tsv") and mos_type in f]
+    except FileNotFoundError:
+        print(f"[Error] Input path not found: {input_path}")
+        return
+
+    if not files:
+        print(f"No 'Widths_calculated' files found for {mos_type} in {input_path}")
+        return
+
+    print(f"Found {len(files)} files to process for Temperature Modeling...")
+
+    # 3. Process each file
+    for filename in files:
+        file_path = os.path.join(input_path, filename)
+
+        # Create Output Filename
+        # Example input: Widths_calculated_L1.00_Io_nmos_...tsv
+        # Example output: Id_Model_Temp_L1.00_Io_nmos_...tsv
+        new_filename = filename.replace("Widths_calculated", "Id_Model_Temp")
+        full_out_path = os.path.join(output_path, new_filename)
+        
+        print(f"Processing: {filename} -> {new_filename}")
+        
         try:
-            os.makedirs(output_path)
-            print(f"Directory created: {output_path}")
-        except OSError as e:
-            print(f"Error creating directory {output_path}: {e}")
-            return
+            with open(file_path, 'r') as f_in, open(full_out_path, 'w') as f_out:
+                
+                # Write Main Header for the file
+                f_out.write(f"Id Temperature Model | Source: {filename}\n")
+                f_out.write("-" * 50 + "\n")
+                
+                # Skip the first header line of the input file
+                header = f_in.readline() 
+                
+                # Read line by line (each line is a specific operating point W, IC)
+                for line in f_in:
+                    parts = line.strip().split('\t')
+                    if len(parts) < 4: continue # Skip empty or malformed lines
+                    
+                    # Parse row: IC, Id_orig, L_um, W_calc_um
+                    # The file stores L and W in micrometers (strings), we need meters for math
+                    try:
+                        IC_val = float(parts[0])
+                        L_val = float(parts[2]) * 1e-6 # Convert um to meters
+                        
+                        w_str = parts[3]
+                        if w_str == "-" or w_str == "None":
+                            continue # Skip invalid widths
+                            
+                        W_val = float(w_str) * 1e-6 # Convert um to meters
+                        
+                    except ValueError:
+                        continue # Skip header repetitions or bad data
 
-    Io_list = _dim_tool_ensure_list(Io_input)
-    ic_groups = _dim_tool_get_ic_groups()
+                    # --- BLOCK GENERATION ---
+                    # Write the header for this specific W/IC block
+                    f_out.write(f"\nFor W={W_val*1e6:.4f}um, IC={IC_val:.4f}\n")
+                    f_out.write(f"Io(A)\tT(C)\tId_model(A)\n")
+                    
+                    # Iterate through the Temperature/Io lists
+                    for io_point, t_point in zip(Io_list, T_list):
+                        # Calculate Id using the Model
+                        Id_result = dim_tool_calculate_Id_model(W_val, L_val, io_point, IC_val)
+                        
+                        # Write the data row
+                        f_out.write(f"{io_point:.4e}\t{t_point:.2f}\t{Id_result:.4e}\n")
 
-    for Io in Io_list:
-        W_str = f"{W_fixed*1e6:.2f}"
-        Io_str = f"{Io:.2e}"
-        filename = f"Lengths_calculated_W{W_str}_Io_{mos_type}_{Io_str}.tsv"
-        full_path = os.path.join(output_path, filename)
-        
-        try: f = open(full_path, "w")
         except IOError as e:
-            print(f"Error opening file {full_path}: {e}")
-            continue
-            
-        term_header = f"{'IC':<10} | {'Id (A)':<12} | {'W (um)':<10} | {'Calculated L (um)':<20}"
-        file_header = "IC\tId(A)\tW(um)\tCalculated_L(um)\n"
-        sep_row = "-" * 70
-        
-        print("\n" + "="*70)
-        print(f"CALCULATING LENGTHS | Io = {Io:.2e} | Type = {mos_type}")
-        print(f"Saving to: {full_path}")
-        print("="*70)
-        
-        f.write(file_header)
-        for group_name, ic_values in ic_groups:
-            print("\n" + "-"*70)
-            print(f" >>> {group_name}")
-            print(sep_row)
-            print(term_header)
-            print(sep_row)
-            for val in ic_values:
-                L_result = _dim_tool_calculate_L_value(Id, W_fixed, Io, val)
-                W_um_disp = f"{W_fixed * 1e6:.2f}"
-                if L_result is None:
-                    L_disp_term = "-"
-                    L_disp_file = "-"
-                else:
-                    L_disp_term = f"{L_result * 1e6:.4f}"
-                    L_disp_file = f"{L_result * 1e6:.6f}"
-                print(f"{val:<10.4f} | {Id:<12.2e} | {W_um_disp:<10} | {L_disp_term:<20}")
-                f.write(f"{val:.4f}\t{Id:.2e}\t{W_um_disp}\t{L_disp_file}\n")
-        f.close()
-        print(f"\n[Done] Results saved to {filename}")
+            print(f"Error processing file {filename}: {e}")
+
+    print("\n[Done] Temperature modeling complete.")

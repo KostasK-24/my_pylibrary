@@ -5,10 +5,10 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="stand_brary",
-    version="1.23.0",
+    version="1.24.0",
     author="Kostas",
     author_email="gkaralis@tuc.gr",
-    description="Semiconductor parameter extraction tools, physics formulas, and data utilities.",
+    description="Semiconductor parameter extraction tools, physics formulas, data utilities, and MOS dimensioning.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=find_packages(),

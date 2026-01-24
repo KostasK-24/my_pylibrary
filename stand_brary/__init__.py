@@ -1,7 +1,7 @@
 """
 Stand Brary Library
 A collection of utility functions for various calculations, semiconductor 
-parameter extraction, data processing, and MOS dimensioning.
+parameter extraction, data processing, MOS dimensioning and modeling.
 """
 
 from .core import (
@@ -65,12 +65,12 @@ from .core import (
     export_current_plot_to_tex,
     inject_plots_into_tex,
 
-    # Dimensioning Tools
+    # Dimensioning & Modeling Tools
     Widths_calculation,
-    Lengths_calculation
+    Id_Temperature_Modeling
 )
 
-__version__ = "1.23.0"
+__version__ = "1.24.0"
 __author__ = "Kostas"
 __email__ = "gkaralis@tuc.gr"
 
@@ -122,6 +122,6 @@ __all__ = [
     "plot_four_styles", "plot_family_of_curves", 
     "export_current_plot_to_tex", "inject_plots_into_tex",
 
-    # Dimensioning Tools
-    "Widths_calculation", "Lengths_calculation"
+    # Dimensioning & Modeling Tools
+    "Widths_calculation", "Id_Temperature_Modeling"
 ]
